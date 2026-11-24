@@ -45,7 +45,7 @@ const blank = () => ({
   onboarded: false,
   prefs: { topics: [...DEFAULT_TOPICS], follow: [...DEFAULT_FOLLOW], muteWords: [], muteSources: [], theme: 'auto', fs: 1,
     cards: 'big', balance: true, showLean: true, noPolitics: true, showBlindspot: true, order: [] },
-  custom: [], version: 3,
+  custom: [], history: [], version: 3,
   model: { topic: {}, tag: {}, source: {}, word: {}, decayed: Date.now() },
   opened: {}, hidden: {}, votes: {}, saved: [], folders: ['Read later'], myEvents: [], lastVisit: 0, lastSeenGenerated: '',
 });
@@ -72,7 +72,7 @@ function persist() { clearTimeout(saveTimer); saveTimer = setTimeout(() => local
 
 let FEED = { generated: '', stories: [] };
 let EVENTS = { events: [] };
-let route = { view: 'feed', topic: 'foryou', savedFolder: 'all', evFilter: 'all' };
+let route = { view: 'feed', topic: 'foryou', savedFolder: 'all', evFilter: 'all', savedTab: 'saved', histQ: '' };
 let feedLimit = 30;
 let prevVisit = S.lastVisit;
 
@@ -450,7 +450,7 @@ function chime() {
 }
 let speaking = false;
 let speech = { parts: [], i: 0, token: 0, voice: null };
-const RATES = [0.8, 1, 1.25, 1.5, 1.75];
+const RATES = [0.8, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5];
 const rateLabel = () => `${S.prefs.rate || 1}×`;
 // Speaks one part at a time so a speed change can take effect on the spot.
 function speakPart() {
@@ -643,12 +643,47 @@ function renderUpNext() {
 
 // ------------------------------------------------------------------ render: saved
 function autoFolder(item) { return TOPICS[item.topic]?.label || 'Other'; }
+function savedTabs() {
+  return `<div class="seg big-seg"><button class="${route.savedTab === 'saved' ? 'on' : ''}" data-savedtab="saved">🔖 Saved</button><button class="${route.savedTab === 'history' ? 'on' : ''}" data-savedtab="history">🕘 History</button></div>`;
+}
+function dayLabel(t) {
+  const d = (x) => tzFmt({ year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(x));
+  if (d(t) === d(Date.now())) return 'Today';
+  if (d(t) === d(Date.now() - 24 * HOUR)) return 'Yesterday';
+  return tzFmt({ weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(t));
+}
+function historyList() {
+  const q = route.histQ.trim().toLowerCase();
+  const list = (S.history || []).filter((h) => !q || `${h.title} ${h.summary || ''} ${h.source} ${(h.tags || []).join(' ')}`.toLowerCase().includes(q));
+  if (!list.length) return `<div class="empty"><img class="mascot" src="ramen.png" alt="">${(S.history || []).length ? `Nothing in your history matches “${esc(route.histQ)}”.` : 'Stories you open will show up here, so you can find them again later.'}</div>`;
+  let html = '', last = '';
+  for (const h of list.slice(0, 300)) {
+    const lab = dayLabel(h.readAt);
+    if (lab !== last) { html += `<div class="month">${lab}</div>`; last = lab; }
+    const t = TOPICS[h.topic] || {};
+    html += `<button class="hist-item" data-open="${h.id}">
+      ${h.image ? `<img src="${esc(h.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : `<span class="hist-ph">${t.emoji || '📰'}</span>`}
+      <span><b>${esc(h.title)}</b><small>${esc(h.source)} · read ${tzFmt({ hour: 'numeric', minute: '2-digit' }).format(new Date(h.readAt))}</small></span>
+    </button>`;
+  }
+  return html;
+}
+function renderHistory() {
+  const n = (S.history || []).length;
+  return `<div class="page-head"><h1>History</h1><p>${n} stor${n === 1 ? 'y' : 'ies'} you've opened · kept on this phone.</p></div>
+  <div class="saved-tabs">${savedTabs()}</div>
+  <div class="hist-search"><input class="input" id="hist-q" type="search" placeholder="Search what you've read…" value="${esc(route.histQ)}" autocomplete="off">
+  ${n ? '<button class="btn ghost" data-clearhist>Clear</button>' : ''}</div>
+  <div class="hist-list" id="hist-list">${historyList()}</div>`;
+}
 function renderSaved() {
+  if (route.savedTab === 'history') return renderHistory();
   const f = route.savedFolder;
   const autoCats = [...new Set(S.saved.map(autoFolder))];
   const list = S.saved.filter((x) => f === 'all' || (f.startsWith('auto:') ? autoFolder(x) === f.slice(5) : x.folder === f))
     .sort((a, b) => b.savedAt - a.savedAt);
   let html = `<div class="page-head"><h1>Saved</h1><p>${S.saved.length} stor${S.saved.length === 1 ? 'y' : 'ies'} · sorted into folders automatically, readable offline.</p></div>
+  <div class="saved-tabs">${savedTabs()}</div>
   <div class="chips">
     <button class="chip ${f === 'all' ? 'on' : ''}" data-folder="all">All</button>
     ${S.folders.map((n) => `<button class="chip accent ${f === n ? 'on' : ''}" data-folder="${esc(n)}">${ICON.folder.replace('<svg', '<svg style="width:15px;height:15px"')} ${esc(n)}</button>`).join('')}
@@ -681,6 +716,9 @@ function render() {
   v.innerHTML = route.view === 'feed' ? renderFeed() : route.view === 'briefing' ? renderBriefing()
     : route.view === 'upnext' ? renderUpNext() : renderSaved();
   bindSwipes();
+  // History search filters as you type without redrawing the whole page.
+  const hq = $('#hist-q');
+  if (hq) hq.addEventListener('input', () => { route.histQ = hq.value; $('#hist-list').innerHTML = historyList(); });
 }
 function go(view) {
   if (route.view === view) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
@@ -689,7 +727,15 @@ function go(view) {
 }
 
 // ------------------------------------------------------------------ actions
-const findStory = (id) => FEED.stories.find((s) => s.id === id) || S.saved.find((s) => s.id === id);
+const findStory = (id) => FEED.stories.find((s) => s.id === id) || S.saved.find((s) => s.id === id) || (S.history || []).find((s) => s.id === id);
+// Reading history: a small snapshot of every story you open, newest first (kept on this phone).
+function remember(s) {
+  S.history = (S.history || []).filter((h) => h.id !== s.id);
+  S.history.unshift({ id: s.id, title: s.title, link: s.link, source: s.source, tier: s.tier, topic: s.topic, lean: s.lean, tags: s.tags,
+    summary: s.summary, image: s.image, ts: s.ts, coverage: s.coverage, words: s.words, readAt: Date.now() });
+  if (S.history.length > 800) S.history.length = 800;
+  persist();
+}
 
 function toggleSave(s) {
   const i = S.saved.findIndex((x) => x.id === s.id);
@@ -725,6 +771,7 @@ function hide(s) {
 }
 function openStory(s) {
   if (!S.opened[s.id]) { S.opened[s.id] = Date.now(); learn(s, 'open'); }
+  remember(s);
   const t = TOPICS[s.topic] || {};
   const saved = S.saved.some((x) => x.id === s.id);
   const fol = isFollowed(s);
@@ -1070,7 +1117,9 @@ function searchSheet() {
         const out = $('#results', root);
         if (term.length < 2) { out.innerHTML = ''; return; }
         const match = (s) => (s.title + ' ' + (s.summary || '') + ' ' + (s.tags || []).join(' ') + ' ' + s.source).toLowerCase().includes(term);
-        const stories = [...S.saved.filter(match), ...FEED.stories.filter((s) => match(s) && !S.saved.some((x) => x.id === s.id))].slice(0, 40);
+        const seen = new Set();
+        const stories = [...S.saved, ...(S.history || []), ...FEED.stories]
+          .filter((s) => match(s) && !seen.has(s.id) && seen.add(s.id)).slice(0, 40);
         const evs = allEvents().filter((e) => (e.title + ' ' + (e.note || '') + ' ' + (e.tags || []).join(' ')).toLowerCase().includes(term));
         out.innerHTML = (evs.length ? `<h4>Up Next</h4><div class="ev-list" style="padding:0">${evs.map(eventCard).join('')}</div>` : '')
           + (stories.length ? `<h4>Stories</h4><div class="feed" style="padding:0">${stories.map((s) => storyCard(s)).join('')}</div>` : '')
@@ -1220,6 +1269,12 @@ function handleViewClick(t, inSheet) {
   if (rel) { if (inSheet) closeSheet(true); relatedSheet(rel.dataset.related); return; }
   const fd = t.closest('[data-folder]');
   if (fd) { route.savedFolder = fd.dataset.folder; render(); return; }
+  const stab = t.closest('[data-savedtab]');
+  if (stab) { route.savedTab = stab.dataset.savedtab; render(); return; }
+  if (t.closest('[data-clearhist]')) {
+    if (confirm('Clear your reading history? Saved stories stay.')) { S.history = []; persist(); render(); }
+    return;
+  }
   if (t.closest('[data-newfolder]')) { promptSheet('New folder', 'e.g. Trip ideas', (n) => { if (!S.folders.includes(n)) S.folders.push(n); route.savedFolder = n; persist(); render(); }); return; }
   if (t.closest('[data-newsection]')) { sectionSheet(); return; }
   const es = t.closest('[data-editsection]');
