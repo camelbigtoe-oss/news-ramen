@@ -399,3 +399,19 @@ input, select, textarea { font: inherit; color: var(--text); }
   .hot { width: 40%; aspect-ratio: 16/9; }
   .gcard .card-img { aspect-ratio: auto; height: 42vh; }
 }
+
+/* ---------- pixel sky header ---------- */
+.brief-hero.has-sky { padding: 0 0 16px; overflow: hidden; background: var(--surface); }
+.sky-wrap { position: relative; }
+#sky { display: block; width: 100%; height: 168px; image-rendering: pixelated; image-rendering: crisp-edges; background: #0b1230; }
+.sky-wrap::after { content: ""; position: absolute; inset: 45% 0 0 0; background: linear-gradient(180deg, transparent, rgba(5,10,24,.55)); pointer-events: none; }
+.sky-text { position: absolute; left: 18px; bottom: 12px; right: 100px; z-index: 1; color: #fff; text-shadow: 0 2px 0 rgba(0,0,0,.4), 0 0 14px rgba(0,0,0,.45); }
+.sky-text h1 { margin: 0; font-size: calc(30px * var(--fs)); letter-spacing: -.02em; }
+.sky-text div { font-size: 14.5px; font-weight: 600; opacity: .92; margin-top: 2px; }
+.sky-temp { position: absolute; right: 16px; bottom: 10px; z-index: 1; font-weight: 900; letter-spacing: -.03em; font-size: 42px; color: #fff; text-shadow: 0 3px 0 rgba(0,0,0,.35); }
+.has-sky .wx { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; margin: 12px 18px 0; font-size: 14.5px; color: var(--muted); }
+.has-sky .wx span:first-child { color: var(--text); font-weight: 700; }
+.has-sky .hol { margin: 8px 18px 0; }
+@media (min-width: 600px) { #sky { height: 210px; } }
+.rate { flex: none; height: 38px; min-width: 50px; padding: 0 10px; border-radius: 19px; background: var(--surface); border: 1px solid var(--line); font-weight: 800; font-size: 14px; color: var(--text); margin-right: 8px; }
+.bowl-head > div:first-child { flex: 1; min-width: 0; }

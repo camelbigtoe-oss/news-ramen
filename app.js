@@ -1,4 +1,5 @@
 // News Ramen — personal news. Everything you teach it stays on this device (localStorage).
+import { startSky } from './sky.js';
 
 // ------------------------------------------------------------------ config
 const TOPICS = {
@@ -411,12 +412,13 @@ const WX = { 0: ['☀️', 'Clear'], 1: ['🌤️', 'Mostly clear'], 2: ['⛅', 
   71: ['🌨️', 'Snow'], 73: ['🌨️', 'Snow'], 75: ['❄️', 'Heavy snow'], 80: ['🌦️', 'Showers'], 81: ['🌧️', 'Showers'], 82: ['⛈️', 'Heavy showers'], 95: ['⛈️', 'Thunderstorms'] };
 let weather = null;
 async function loadWeather() {
-  if (weather && Date.now() - weather.at < HOUR) return;
+  if (weather && Date.now() - weather.at < 30 * 60e3) return;
   try {
-    const u = `https://api.open-meteo.com/v1/forecast?latitude=${CITY.lat}&longitude=${CITY.lon}&current=temperature_2m,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=Pacific%2FAuckland&forecast_days=1`;
+    const u = `https://api.open-meteo.com/v1/forecast?latitude=${CITY.lat}&longitude=${CITY.lon}&current=temperature_2m,weather_code,wind_speed_10m,cloud_cover,is_day&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset&timezone=Pacific%2FAuckland&timeformat=unixtime&forecast_days=2`;
     const d = await fetch(u).then((r) => r.json());
     weather = { at: Date.now(), t: Math.round(d.current.temperature_2m), code: d.current.weather_code, wind: Math.round(d.current.wind_speed_10m),
-      max: Math.round(d.daily.temperature_2m_max[0]), min: Math.round(d.daily.temperature_2m_min[0]), rain: d.daily.precipitation_probability_max[0] };
+      cloud: d.current.cloud_cover, max: Math.round(d.daily.temperature_2m_max[0]), min: Math.round(d.daily.temperature_2m_min[0]),
+      rain: d.daily.precipitation_probability_max[0], sunrise: d.daily.sunrise.map((x) => x * 1000), sunset: d.daily.sunset.map((x) => x * 1000) };
     if (route.view === 'briefing') render();
   } catch {}
 }
@@ -447,9 +449,30 @@ function chime() {
   } catch {}
 }
 let speaking = false;
+let speech = { parts: [], i: 0, token: 0, voice: null };
+const RATES = [0.8, 1, 1.25, 1.5, 1.75];
+const rateLabel = () => `${S.prefs.rate || 1}×`;
+// Speaks one part at a time so a speed change can take effect on the spot.
+function speakPart() {
+  const synth = window.speechSynthesis;
+  const tok = speech.token;
+  if (speech.i >= speech.parts.length) { speaking = false; chime(); if (route.view === 'briefing') render(); return; }
+  const u = new SpeechSynthesisUtterance(speech.parts[speech.i].replace(/[‘’]/g, "'"));
+  if (speech.voice) u.voice = speech.voice;
+  u.rate = (S.prefs.rate || 1) * 1.02;
+  u.onend = () => { if (tok !== speech.token || !speaking) return; speech.i++; speakPart(); };
+  synth.speak(u);
+}
+function setRate() {
+  const cur = S.prefs.rate || 1;
+  S.prefs.rate = RATES[(RATES.indexOf(cur) + 1) % RATES.length] || 1;
+  persist();
+  if (speaking) { speech.token++; window.speechSynthesis.cancel(); speakPart(); }
+  const b = $('[data-rate]'); if (b) b.textContent = rateLabel();
+}
 function listenBriefing() {
   const synth = window.speechSynthesis;
-  if (speaking) { synth.cancel(); speaking = false; render(); return; }
+  if (speaking) { speaking = false; speech.token++; synth.cancel(); render(); return; }
   const { items, fin } = bowlItems();
   const parts = [`Good ${(+tzFmt({ hour: 'numeric', hour12: false }).format(new Date())) < 12 ? 'morning' : 'day'}. This is the Daily Bowl from News Ramen, for ${bowlDate() || 'today'}.`];
   if (weather) parts.push(`In ${CITY.name}, it's ${weather.t} degrees, heading for ${weather.max}.`);
@@ -462,19 +485,13 @@ function listenBriefing() {
   if (fin) parts.push(`And finally. ${fin.title}. ${fin.line || ''}`);
   parts.push("That's the Daily Bowl. Enjoy your day.");
   const voices = synth.getVoices();
-  const voice = voices.find((v) => /en-NZ/i.test(v.lang)) || voices.find((v) => /en-(AU|GB)/i.test(v.lang)) || voices.find((v) => /^en/i.test(v.lang));
+  speech = { parts, i: 0, token: speech.token + 1,
+    voice: voices.find((v) => /en-NZ/i.test(v.lang)) || voices.find((v) => /en-(AU|GB)/i.test(v.lang)) || voices.find((v) => /^en/i.test(v.lang)) };
   synth.cancel();
   chime();
-  setTimeout(() => {
-    parts.forEach((p, i) => {
-      const u = new SpeechSynthesisUtterance(p.replace(/[‘’]/g, "'"));
-      if (voice) u.voice = voice;
-      u.rate = 1.02;
-      if (i === parts.length - 1) u.onend = () => { speaking = false; chime(); if (route.view === 'briefing') render(); };
-      synth.speak(u);
-    });
-  }, 900);
   speaking = true;
+  const tok = speech.token;
+  setTimeout(() => { if (speaking && tok === speech.token) speakPart(); }, 900);
   render();
 }
 
@@ -521,17 +538,20 @@ function renderBriefing() {
       <span><span class="bk">${esc(i.kicker)}${i.big ? ' · <b>Big story</b>' : ''}</span><b class="bt">${esc(i.title)}</b>${i.line ? `<span class="bl">${esc(i.line)}</span>` : ''}<span class="bs">${esc(i.source)}${i.outlets > 1 ? ` + ${i.outlets - 1} more` : ''}</span></span>
     </button>`;
   return `
-  <section class="brief-hero">
-    <h1>${greet}</h1>
-    <div style="color:var(--muted)">${date}</div>
-    ${weather ? `<div class="wx"><span style="font-size:30px">${wx[0]}</span><b>${weather.t}°</b><span>${wx[1]} in ${CITY.name}<br>High ${weather.max}° · Low ${weather.min}° · ${weather.rain ?? 0}% rain</span></div>` : ''}
+  <section class="brief-hero has-sky">
+    <div class="sky-wrap">
+      <canvas id="sky" role="img" aria-label="${weather ? esc(`${wx[1]} sky over ${CITY.name}`) : 'Sky over Christchurch'}"></canvas>
+      <div class="sky-text"><h1>${greet}</h1><div>${date}</div></div>
+      ${weather ? `<div class="sky-temp">${weather.t}°</div>` : ''}
+    </div>
+    ${weather ? `<div class="wx"><span>${wx[0]} ${wx[1]} in ${CITY.name}</span><span>High ${weather.max}° · Low ${weather.min}° · ${weather.rain ?? 0}% rain · wind ${weather.wind} km/h</span></div>` : ''}
     ${hol ? `<div class="hol">🎉 Next public holiday: <b>${esc(hol.title.replace(/^🎉 /, ''))}</b> — ${holDays <= 0 ? 'today!' : holDays === 1 ? 'tomorrow' : `in ${holDays} days`} (${whenText(hol).replace(' · all day', '')})</div>` : ''}
   </section>
   ${items.length ? `
   <section class="bowl">
     <div class="bowl-head">
       <div><span class="onair">● DAILY BOWL</span><div class="bowl-title">Today's news in one bowl</div><div class="bowl-sub">${esc(bowlDate())} · 6am edition · ${items.length + (fin ? 1 : 0)} stories</div></div>
-      ${'speechSynthesis' in window ? `<button class="play" data-listen aria-label="${speaking ? 'Stop' : 'Play the Daily Bowl'}">${speaking ? '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>' : ICON.play}</button>` : ''}
+      ${'speechSynthesis' in window ? `<button class="rate" data-rate aria-label="Reading speed">${rateLabel()}</button><button class="play" data-listen aria-label="${speaking ? 'Stop' : 'Play the Daily Bowl'}">${speaking ? '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>' : ICON.play}</button>` : ''}
     </div>
     ${items.map((i, n) => bowlRow(i, n + 1)).join('')}
     ${fin ? `<div class="bowl-fin">And finally…</div>${bowlRow(fin, '★')}` : ''}
@@ -1204,6 +1224,7 @@ function handleViewClick(t, inSheet) {
   if (t.closest('[data-newsection]')) { sectionSheet(); return; }
   const es = t.closest('[data-editsection]');
   if (es) { sectionSheet(es.dataset.editsection); return; }
+  if (t.closest('[data-rate]')) { setRate(); return; }
   if (t.closest('[data-listen]')) { listenBriefing(t.closest('[data-listen]')); return; }
   const mf = t.closest('[data-movefolder]');
   if (mf) { pickFolder(mf.dataset.movefolder); return; }
@@ -1328,6 +1349,7 @@ for (const q of ['(min-width: 600px)', '(min-width: 1100px)']) {
 }
 
 applyLook();
+startSky(() => weather);
 decayModel();
 // Forget opened/hidden markers older than 2 weeks to keep storage small.
 for (const k of ['opened', 'hidden']) for (const [id, t] of Object.entries(S[k])) if (Date.now() - t > 14 * 24 * HOUR) delete S[k][id];

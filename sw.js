@@ -1,8 +1,8 @@
 // News Ramen service worker: app shell offline, news network-first, saved images cached.
-const SHELL = 'ramen-shell-v1';
+const SHELL = 'ramen-shell-v2';
 const DATA = 'ramen-data-v1';
 const IMG = 'ramen-img-v1';
-const FILES = ['./', 'index.html', 'style.css', 'app.js', 'ramen-96.png', 'favicon.png', 'fonts/okasa.otf', 'icon-192.png', 'manifest.webmanifest'];
+const FILES = ['./', 'index.html', 'style.css', 'app.js', 'sky.js', 'ramen-96.png', 'favicon.png', 'fonts/okasa.otf', 'icon-192.png', 'manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(SHELL).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));

@@ -30,7 +30,7 @@ jobs:
       - name: Package site
         run: |
           mkdir _site
-          cp -r index.html style.css app.js sw.js manifest.webmanifest favicon.png ramen.png ramen-96.png icon-192.png icon-512.png icon-maskable-512.png fonts data _site/
+          cp -r index.html style.css app.js sky.js sw.js manifest.webmanifest favicon.png ramen.png ramen-96.png icon-192.png icon-512.png icon-maskable-512.png fonts data _site/
       - uses: actions/upload-pages-artifact@v4
         with:
           path: _site
