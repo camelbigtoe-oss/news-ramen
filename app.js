@@ -424,10 +424,38 @@ async function loadWeather() {
 }
 
 // The Daily Bowl: today's bulletin, minus politics if you've switched that off.
+// Your Daily Bowl: the day's biggest stories, filtered to suit you. Sport only
+// makes it in when it's something you follow, a section you made, or a topic you like.
+const SPORTY = ['sport', 'league', 'strength'];
+function bowlTags(i) { return i.tags || FEED.stories.find((s) => s.id === i.id)?.tags || []; }
+function bowlFits(i) {
+  if (S.prefs.noPolitics && i.pol) return false;
+  if (S.prefs.muteSources.includes(i.source)) return false;
+  if (S.hidden[i.id] || S.votes[i.id] === -1) return false;
+  if (!S.prefs.topics.includes(i.topic)) return false;
+  const text = `${i.title} ${i.line || ''}`.toLowerCase();
+  if (S.prefs.muteWords.some((w) => w && text.includes(w.toLowerCase()))) return false;
+  const tags = bowlTags(i);
+  if (tags.some((t) => (S.model.tag[t] || 0) < -2) || (S.model.topic[i.topic] || 0) < -3) return false;
+  if (SPORTY.includes(i.topic)) {
+    const followed = S.prefs.follow.some((f) => tags.includes(f) || text.includes(f.toLowerCase()));
+    const custom = (S.custom || []).some((c) => customMatch(c, { title: i.title, summary: i.line, tags }));
+    const liked = tags.some((t) => (S.model.tag[t] || 0) > 1.5);
+    if (!followed && !custom && !liked) return false;
+  }
+  return true;
+}
 function bowlItems() {
   if (!BOWL) return { items: [], fin: null };
-  const ok = (i) => !(S.prefs.noPolitics && i.pol) && !S.prefs.muteSources.includes(i.source);
-  return { items: BOWL.items.filter(ok).slice(0, 7), fin: BOWL.finally && ok(BOWL.finally) ? BOWL.finally : null };
+  const items = []; const per = {};
+  for (const i of BOWL.items.filter(bowlFits)) {
+    const cap = SPORTY.includes(i.topic) ? 1 : 2;          // keep it a news bulletin, not a sports page
+    if ((per[i.topic] || 0) >= cap) continue;
+    per[i.topic] = (per[i.topic] || 0) + 1;
+    items.push(i);
+    if (items.length === 8) break;
+  }
+  return { items, fin: BOWL.finally && bowlFits(BOWL.finally) ? BOWL.finally : null };
 }
 function bowlDate() {
   return BOWL ? tzFmt({ weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(BOWL.date + 'T12:00:00+13:00')) : '';
@@ -480,12 +508,14 @@ function listenBriefing() {
   items.forEach((i, n) => {
     const lead = n === 0 ? (BOWL.headline ? 'Our top story.' : 'First up.') : i.kicker !== lastKicker ? `In ${i.kicker.toLowerCase()} news.` : 'Also.';
     lastKicker = i.kicker;
-    parts.push(`${lead} ${i.title}. ${i.line || ''}`);
+    parts.push(`${lead} ${i.title}.`);
+    parts.push(i.body || i.line || '');
+    if (i.outlets > 2) parts.push(`${i.outlets} outlets are covering this one.`);
   });
-  if (fin) parts.push(`And finally. ${fin.title}. ${fin.line || ''}`);
+  if (fin) { parts.push(`And finally. ${fin.title}.`); parts.push(fin.body || fin.line || ''); }
   parts.push("That's the Daily Bowl. Enjoy your day.");
   const voices = synth.getVoices();
-  speech = { parts, i: 0, token: speech.token + 1,
+  speech = { parts: parts.filter((p) => p && p.trim()), i: 0, token: speech.token + 1,
     voice: voices.find((v) => /en-NZ/i.test(v.lang)) || voices.find((v) => /en-(AU|GB)/i.test(v.lang)) || voices.find((v) => /^en/i.test(v.lang)) };
   synth.cancel();
   chime();
@@ -535,7 +565,7 @@ function renderBriefing() {
   const bowlRow = (i, n) => `
     <button class="bowl-item" data-open="${i.id}">
       <span class="bn">${n}</span>
-      <span><span class="bk">${esc(i.kicker)}${i.big ? ' · <b>Big story</b>' : ''}</span><b class="bt">${esc(i.title)}</b>${i.line ? `<span class="bl">${esc(i.line)}</span>` : ''}<span class="bs">${esc(i.source)}${i.outlets > 1 ? ` + ${i.outlets - 1} more` : ''}</span></span>
+      <span><span class="bk">${esc(i.kicker)}${i.big ? ' · <b>Big story</b>' : ''}</span><b class="bt">${esc(i.title)}</b>${i.body || i.line ? `<span class="bl">${esc(i.body || i.line)}</span>` : ''}<span class="bs">${esc(i.source)}${i.outlets > 1 ? ` + ${i.outlets - 1} more` : ''}</span></span>
     </button>`;
   return `
   <section class="brief-hero has-sky">

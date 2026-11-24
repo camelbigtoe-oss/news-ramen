@@ -470,35 +470,82 @@ const firstSentence = (s) => {
   const m = (s || '').replace(/…$/, '').match(/^.{40,220}?[.!?](\s|$)/);
   return m ? m[0].trim() : clip(s || '', 200);
 };
+// Pull the opening paragraphs of an article so the bulletin can give a real
+// rundown, not just a headline. Only the first few sentences, read out on
+// your own phone, with the outlet named.
+const BOILER = /cookie|subscribe|sign up|newsletter|advertis|copyright|©|all rights reserved|read more|click here|follow us|download (the|our) app|javascript|your browser|log ?in|support (our|independent) journalism|share this|image:|photo:|getty|caption|premium article|requires a subscription|subscribers? only|paywall|this content is|listen to this|minute read/i;
+async function leadParagraphs(url) {
+  if (!url || /news\.google\.com/.test(url)) return '';
+  try {
+    let html = await get(url);
+    const art = html.match(/<article[\s\S]*?<\/article>/i);
+    if (art && art[0].length > 1500) html = art[0];
+    const paras = [...html.matchAll(/<p\b[^>]*>([\s\S]*?)<\/p>/gi)].map((m) => stripHtml(m[1]))
+      .filter((p) => p.length > 70 && p.length < 900 && !BOILER.test(p) && /[.!?"”']$/.test(p));
+    let out = '';
+    for (const p of paras) {
+      if (out.length > 380) break;
+      if (out.includes(p.slice(0, 40))) continue;
+      out += (out ? ' ' : '') + p;
+      if (out.length > 700) break;
+    }
+    // Trim to whole sentences, about 3-4 of them.
+    // Sentences end at . ! ? followed by a space and a capital (so "$17.6m" and "U.S." stay whole).
+    const sentences = out.match(/[\s\S]*?[.!?]["”’']?(?=\s+["“‘']?[A-Z0-9]|\s*$)/g) || [];
+    let text = '';
+    for (const s of sentences) { if ((text + s).length > 560) break; text += s; }
+    return text.trim();
+  } catch { return ''; }
+}
+
 async function dailyBowl(stories) {
   const nz = (o) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Auckland', ...o }).format(new Date(NOW));
   const today = nz({ year: 'numeric', month: '2-digit', day: '2-digit' });
   const hour = +nz({ hour: 'numeric', hour12: false }) % 24;
+  const VER = 2;
   let prev = null;
   try { prev = JSON.parse(await get(SITE + 'data/daily.json?t=' + NOW)); } catch {}
-  if (prev?.date === today || (prev?.date && hour < 6)) return { bowl: prev, made: false };
+  const fresh = prev?.ver === VER;
+  if (fresh && (prev.date === today || hour < 6)) return { bowl: prev, made: false };
 
   const recent = stories.filter((s) => NOW - s.ts < 26 * HOUR && s.topic !== 'views' && s.title.length > 25);
   const weight = (s) => (s.coverage.length * 2) + (s.tier === 'A' ? 1.5 : s.tier === 'B' ? 0.8 : 0) + (s.summary ? 1 : 0)
     + (['nz', 'world', 'local'].includes(s.topic) ? 0.6 : 0) - (NOW - s.ts) / (12 * HOUR);
   const ranked = recent.map((s) => ({ s, w: weight(s) })).sort((a, b) => b.w - a.w).map((x) => x.s);
+  // A big, varied pool: the app keeps only what suits you (no politics, only the sport you follow…).
+  const CAP = { sport: 4, league: 3, strength: 3 };
   const picks = []; const per = {};
   const sameStory = (a, b) => a.words.filter((w) => b.words.includes(w)).length >= 3;
   for (const s of ranked) {
-    if (s.topic === 'mystery' || (per[s.topic] || 0) >= 2) continue;
+    if (s.topic === 'mystery' || (per[s.topic] || 0) >= (CAP[s.topic] || 2)) continue;
     if (picks.some((p) => sameStory(p, s))) continue;
     if (/^apod/i.test(s.summary || '')) continue;
     per[s.topic] = (per[s.topic] || 0) + 1;
     picks.push(s);
-    if (picks.length >= 16) break; // extra so the app can drop politics and still have plenty
+    if (picks.length >= 26) break;
+  }
+  // Make sure followed niches have a shot even on quiet days.
+  for (const s of ranked) {
+    if (picks.length >= 32) break;
+    if (['strength', 'league'].includes(s.topic) && !picks.includes(s) && !picks.some((p) => sameStory(p, s))) picks.push(s);
   }
   const finale = ranked.find((s) => s.topic === 'mystery' && s.tier !== 'X') || ranked.find((s) => s.topic === 'mystery');
+  const all = finale ? [...picks, finale] : picks;
+  // Fetch article openings a few at a time.
+  const bodies = {};
+  for (let i = 0; i < all.length; i += 6) {
+    await Promise.all(all.slice(i, i + 6).map(async (s) => {
+      const links = [s.link, ...s.coverage.map((c) => c.link)].filter((l) => !/news\.google\.com/.test(l));
+      for (const l of links.slice(0, 2)) { const b = await leadParagraphs(l); if (b.length > 120) { bodies[s.id] = b; break; } }
+    }));
+  }
   const item = (s) => ({ id: s.id, topic: s.topic, kicker: KICKER[s.topic] || '', title: s.title, line: firstSentence(s.summary),
-    source: s.source, outlets: s.coverage.length + 1, big: s.coverage.length >= 5, pol: !!s.pol, link: s.link, image: s.image });
+    body: bodies[s.id] || '', tags: s.tags, source: s.source, outlets: s.coverage.length + 1, big: s.coverage.length >= 5,
+    pol: !!s.pol, link: s.link, image: s.image });
   return {
     made: true,
     bowl: {
-      date: today, made: new Date(NOW).toISOString(),
+      ver: VER, date: today, made: new Date(NOW).toISOString(),
       headline: picks[0] && picks[0].coverage.length >= 6 ? 'Major story' : '',
       items: picks.map(item), finally: finale ? item(finale) : null,
     },
