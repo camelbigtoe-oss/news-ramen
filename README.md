@@ -5,9 +5,17 @@ A personal news app for your phone. It pulls from vetted outlets across the poli
 ## Sections
 
 - **For You**: your ranked feed with a "Hot right now" rail, plus sections (NZ, Christchurch, World, Views, Sport, League, Strength, Mysteries & Weird, Tech, Gaming, Science & Space, Entertainment, Business), **Blindspot**, and any sections you make yourself.
-- **Briefing**: a roundup with Christchurch weather, what's on in the next 48 hours, your top 10 stories, and a button to have it read aloud.
-- **Up Next**: upcoming events with countdowns, where-to-watch links and add-to-calendar. You can add your own events.
+- **Briefing**: Christchurch weather, a countdown to the next public holiday, the **Daily Bowl** (a once-a-day 6am bulletin of the biggest stories, ending with an "and finally", with a play button that reads it out like a TV newsreader), what's on in the next 48 hours, and more stories picked for you.
+- **Up Next**: upcoming events with countdowns, where-to-watch links and add-to-calendar, including NZ public holidays and Canterbury Anniversary Day. You can add your own events.
 - **Saved**: saved stories, sorted into folders automatically, plus your own folders. Readable offline.
+
+## Layout
+
+Google News-style cards (big picture, headline, summary, outlets, like / save / share). One column on a phone, two on a Fold or in landscape, three on wide screens. **⇅ Arrange** reorders or hides the section chips.
+
+## Politics filter
+
+**Hide politics** (on by default, in the profile screen) removes political stories everywhere and hides the Views and Blindspot sections. The feed builder flags a story as political from its headline (and summary, for news sections).
 
 ## Perspective
 

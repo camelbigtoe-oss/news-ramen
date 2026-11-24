@@ -147,7 +147,7 @@ const JUNK = [
   /in pictures/i, /\bphotos?:/i, /\bgallery\b/i, /\bbest .{1,40} (to buy|for 20\d\d)\b/i, /\bgift guide\b/i,
   /\breview round-?up\b/i, /\bcodes? \(?(november|december|january|february|march|april|may|june|july|august|september|october)/i,
   /\bobituar/i, /\blotto\b.*results/i, /\bpowerball\b/i, /\bweather:? (live|warning) updates\b/i,
-  /\bwatch:? live\b/i, /- round \d+, (19|20)\d\d$/i, /live score/i, /gametracker/i, /^general debate/i, /scratch-?off|lottery (prize|jackpot|win)|wins? .{0,20}lottery/i, /^[\w'. ]+ - \d{1,2} \w+ 20\d\d$/, /^open thread/i, /^(daily|weekly) (digest|roundup)/i, /\bsignings? tracker\b/i, /\bopinion:/i, /^letters?:/i, /\bpodcast:?\b/i, /^the detail\b/i,
+  /\bwatch:? live\b/i, /- round \d+, (19|20)\d\d$/i, /live score/i, /gametracker/i, /^general debate/i, /\blocations?:|\bhow to (get|find|unlock|restore|beat|solve)\b|\bwalkthrough\b|\bguide:|\btier list\b|\bbest (builds?|loadouts?|settings)\b/i, /scratch-?off|lottery (prize|jackpot|win)|wins? .{0,20}lottery/i, /^[\w'. ]+ - \d{1,2} \w+ 20\d\d$/, /^open thread/i, /^(daily|weekly) (digest|roundup)/i, /\bsignings? tracker\b/i, /\bopinion:/i, /^letters?:/i, /\bpodcast:?\b/i, /^the detail\b/i,
 ];
 const isJunk = (t) => JUNK.some((r) => r.test(t)) || /[!?]{2,}/.test(t) || t.length < 18;
 
@@ -296,6 +296,19 @@ async function collect() {
   return { raw, status };
 }
 
+const POLITICS = new RegExp([
+  'politic', 'parliament', 'government', '\\bminister', '\\bmps?\\b', '\\belection', 'electorate', 'referendum', '\\bcabinet\\b',
+  '\\bsenate', 'congress', 'white house', 'presidential', 'prime minister', 'premier\\b', 'lawmaker', 'legislat', 'coalition',
+  'opposition', 'campaign trail', 'voters?\\b', '\\bballot', 'polling', 'democrat', 'republican', '\\bgop\\b', '\\btor(y|ies)\\b',
+  '\\blabour\\b', 'national party', 'act party', '\\bact\\b (leader|mp|says|claims|calls)', 'nz first', 'te p[aā]ti m[aā]ori', 'green party',
+  'luxon', 'hipkins', 'seymour', 'winston peters', 'swarbrick', 'nicola willis', 'trump', 'biden', 'kamala', '\\bvance\\b',
+  'starmer', 'albanese', 'putin', 'zelensky', 'xi jinping', '\\bmodi\\b', 'netanyahu', '\\bmaga\\b', '\\bwoke\\b',
+  'left-wing', 'right-wing', 'partisan', 'impeach', 'supreme court', 'tariff', 'māori seats', 'maori seats', 'overhang',
+  'budget 20', 'select committee', 'council election', 'mayor',
+].join('|'), 'i');
+// Opinion pieces in Views are mostly political even when they don't name a politician.
+const POLITICS_SOFT = /\b(policy|policies|ideolog|conservative|liberal|progressive|leftist|socialis|capitalis|free speech|censorship|immigration|culture war|elites?|regime|state\b|treaty|tax(es)?\b|welfare|union)/i;
+
 function enrich(it) {
   const text = `${it.title} ${it.summary}`;
   const tags = TAGS.filter(([, re]) => re.test(text)).map(([name]) => name);
@@ -310,7 +323,12 @@ function enrich(it) {
   // Search results only keep a niche section when the story is really about it.
   if (topic === 'local' && !TAGS.find(([n]) => n === 'Christchurch')[1].test(it.title)) topic = 'nz';
   if (topic === 'league' && !tags.some((t) => ['NRL', 'Warriors', 'Kiwis'].includes(t))) topic = 'sport';
-  return { ...it, topic, tags, tok: tokens(it.title) };
+  // Politics flag, so the app can hide politics for people who'd rather not see it.
+  // News sections: headline or summary. Other sections (tech, sport, film…): only when the headline itself is political.
+  const NEWSY = ['nz', 'local', 'world', 'business', 'views'];
+  const pol = topic === 'views' ? POLITICS.test(text) || POLITICS_SOFT.test(text)
+    : NEWSY.includes(topic) ? POLITICS.test(text) : POLITICS.test(it.title);
+  return { ...it, topic, tags, pol, tok: tokens(it.title) };
 }
 
 function cluster(items) {
@@ -349,7 +367,7 @@ function cluster(items) {
     const id = hash(lead.link);
     return {
       id, title: lead.title, link: lead.link, source: lead.source, sourceId: lead.sourceId, tier: lead.tier, lean: LEAN[lead.source] || '',
-      topic: lead.topic, tags, summary, image, ts: Math.max(...items.map((x) => x.ts)),
+      topic: lead.topic, tags, summary, image, pol: items.filter((x) => x.pol).length * 2 >= items.length || lead.pol, ts: Math.max(...items.map((x) => x.ts)),
       first: Math.min(...items.map((x) => x.ts)), words: [...c.tokSet].slice(0, 14),
       coverage: items.slice(1, 10).map((x) => ({ source: x.source, tier: x.tier, lean: LEAN[x.source] || '', title: x.title, link: x.link, ts: x.ts })),
     };
@@ -395,6 +413,29 @@ async function buildEvents() {
     status.push(['launches', 'ok']);
   } catch (e) { status.push(['launches', 'fail', e.message]); }
 
+  // NZ public holidays (Mondayised dates) plus Christchurch's own anniversary day.
+  try {
+    const year = new Date(NOW).getUTCFullYear();
+    const lists = await Promise.all([year, year + 1].map((y) => get(`https://date.nager.at/api/v3/PublicHolidays/${y}/NZ`).then(JSON.parse)));
+    const RESTRICTED = /christmas day|good friday|easter sunday|anzac/i;
+    let n = 0;
+    for (const h of lists.flat()) {
+      const local = h.global || /north & central/i.test(h.localName);
+      if (!local) continue;
+      const t = Date.parse(h.date + 'T00:00:00+13:00');
+      if (t < NOW - 24 * HOUR || t - NOW > 400 * 24 * HOUR) continue;
+      const name = h.global ? h.localName : 'Canterbury Anniversary Day (Show Day)';
+      events.push({
+        id: 'hol-' + h.date + '-' + h.name.replace(/\W+/g, '').toLowerCase(), title: `🎉 ${name}`, start: h.date, allDay: true,
+        category: 'Holiday', tags: ['Holidays'], location: h.global ? 'Public holiday, all of NZ' : 'Public holiday in Christchurch / Canterbury',
+        note: RESTRICTED.test(name) ? 'Restricted trading: most shops are closed (Anzac Day: until 1pm).' : 'Most shops open; banks and many offices closed.',
+        watch: [], origin: 'live',
+      });
+      n++;
+    }
+    status.push(['holidays', 'ok', n]);
+  } catch (e) { status.push(['holidays', 'fail', e.message]); }
+
   // NRL fixtures once the season is published (TheSportsDB free key).
   try {
     const d = JSON.parse(await get('https://www.thesportsdb.com/api/v1/json/123/eventsnextleague.php?id=4416'));
@@ -418,6 +459,52 @@ async function buildEvents() {
   return { events: live, status };
 }
 
+// ---------------------------------------------------------------- daily bowl
+// A once-a-day TV-style bulletin: the biggest stories of the last day (the ones
+// the most outlets covered), mixed across sections, plus an "and finally".
+// Made at 6am NZ time and reused for the rest of the day.
+const SITE = process.env.SITE_URL || 'https://camelbigtoe-oss.github.io/news-ramen/';
+const KICKER = { nz: 'New Zealand', local: 'Christchurch', world: 'World', views: 'Views', sport: 'Sport', league: 'League',
+  strength: 'Strength', mystery: 'Mysteries', tech: 'Tech', gaming: 'Gaming', science: 'Science', entertainment: 'Entertainment', business: 'Business' };
+const firstSentence = (s) => {
+  const m = (s || '').replace(/…$/, '').match(/^.{40,220}?[.!?](\s|$)/);
+  return m ? m[0].trim() : clip(s || '', 200);
+};
+async function dailyBowl(stories) {
+  const nz = (o) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Auckland', ...o }).format(new Date(NOW));
+  const today = nz({ year: 'numeric', month: '2-digit', day: '2-digit' });
+  const hour = +nz({ hour: 'numeric', hour12: false }) % 24;
+  let prev = null;
+  try { prev = JSON.parse(await get(SITE + 'data/daily.json?t=' + NOW)); } catch {}
+  if (prev?.date === today || (prev?.date && hour < 6)) return { bowl: prev, made: false };
+
+  const recent = stories.filter((s) => NOW - s.ts < 26 * HOUR && s.topic !== 'views' && s.title.length > 25);
+  const weight = (s) => (s.coverage.length * 2) + (s.tier === 'A' ? 1.5 : s.tier === 'B' ? 0.8 : 0) + (s.summary ? 1 : 0)
+    + (['nz', 'world', 'local'].includes(s.topic) ? 0.6 : 0) - (NOW - s.ts) / (12 * HOUR);
+  const ranked = recent.map((s) => ({ s, w: weight(s) })).sort((a, b) => b.w - a.w).map((x) => x.s);
+  const picks = []; const per = {};
+  const sameStory = (a, b) => a.words.filter((w) => b.words.includes(w)).length >= 3;
+  for (const s of ranked) {
+    if (s.topic === 'mystery' || (per[s.topic] || 0) >= 2) continue;
+    if (picks.some((p) => sameStory(p, s))) continue;
+    if (/^apod/i.test(s.summary || '')) continue;
+    per[s.topic] = (per[s.topic] || 0) + 1;
+    picks.push(s);
+    if (picks.length >= 16) break; // extra so the app can drop politics and still have plenty
+  }
+  const finale = ranked.find((s) => s.topic === 'mystery' && s.tier !== 'X') || ranked.find((s) => s.topic === 'mystery');
+  const item = (s) => ({ id: s.id, topic: s.topic, kicker: KICKER[s.topic] || '', title: s.title, line: firstSentence(s.summary),
+    source: s.source, outlets: s.coverage.length + 1, big: s.coverage.length >= 5, pol: !!s.pol, link: s.link, image: s.image });
+  return {
+    made: true,
+    bowl: {
+      date: today, made: new Date(NOW).toISOString(),
+      headline: picks[0] && picks[0].coverage.length >= 6 ? 'Major story' : '',
+      items: picks.map(item), finally: finale ? item(finale) : null,
+    },
+  };
+}
+
 // ---------------------------------------------------------------- main
 const { raw, status } = await collect();
 const stories = cluster(raw.map(enrich)).sort((a, b) => b.ts - a.ts).slice(0, 800);
@@ -425,6 +512,9 @@ const ev = await buildEvents();
 await mkdir(DATA, { recursive: true });
 await writeFile(path.join(DATA, 'feed.json'), JSON.stringify({ generated: new Date(NOW).toISOString(), stories }));
 await writeFile(path.join(DATA, 'events.json'), JSON.stringify({ generated: new Date(NOW).toISOString(), events: ev.events }));
+const daily = await dailyBowl(stories);
+if (daily.bowl) await writeFile(path.join(DATA, 'daily.json'), JSON.stringify(daily.bowl));
+console.log(`daily bowl: ${daily.made ? 'made new' : 'kept'} for ${daily.bowl?.date}`);
 const fails = [...status, ...ev.status].filter((s) => s[1] === 'fail');
 console.log(`stories: ${stories.length} from ${raw.length} items; events: ${ev.events.length}`);
 console.log([...status, ...ev.status].map((s) => s.join(' ')).join('\n'));

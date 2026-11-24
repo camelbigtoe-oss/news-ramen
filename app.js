@@ -43,8 +43,8 @@ const KEY = 'kea.v1'; // storage key kept from the first version so nothing is l
 const blank = () => ({
   onboarded: false,
   prefs: { topics: [...DEFAULT_TOPICS], follow: [...DEFAULT_FOLLOW], muteWords: [], muteSources: [], theme: 'auto', fs: 1,
-    cards: 'big', balance: true, showLean: true },
-  custom: [], version: 2,
+    cards: 'big', balance: true, showLean: true, noPolitics: true, showBlindspot: true, order: [] },
+  custom: [], version: 3,
   model: { topic: {}, tag: {}, source: {}, word: {}, decayed: Date.now() },
   opened: {}, hidden: {}, votes: {}, saved: [], folders: ['Read later'], myEvents: [], lastVisit: 0, lastSeenGenerated: '',
 });
@@ -62,6 +62,8 @@ function load() {
     for (const f of ['UFOs & UAP', 'Unsolved']) if (!s.prefs.follow.includes(f)) s.prefs.follow.push(f);
     s.version = 2;
   }
+  // Version 3: politics filter added, switched on because you'd rather skip politics.
+  if ((stored.version || 1) < 3) { s.prefs.noPolitics = true; s.version = 3; }
   return s;
 }
 let saveTimer;
@@ -140,6 +142,7 @@ function isFollowed(story) {
 }
 function isBlocked(story) {
   if (S.prefs.muteSources.includes(story.source)) return true;
+  if (S.prefs.noPolitics && story.pol) return true;
   const t = (story.title + ' ' + story.summary).toLowerCase();
   return S.prefs.muteWords.some((w) => w && t.includes(w.toLowerCase()));
 }
@@ -246,16 +249,20 @@ function whyLines(s) {
 }
 
 // ------------------------------------------------------------------ data
+let BOWL = null;
 async function loadData(force) {
   const btn = $('#btn-refresh');
   btn.classList.add('spin');
+  const q = force ? `?t=${Date.now()}` : '';
+  const opt = { cache: force ? 'reload' : 'default' };
   try {
-    const [f, e] = await Promise.all([
-      fetch('data/feed.json' + (force ? `?t=${Date.now()}` : ''), { cache: force ? 'reload' : 'default' }).then((r) => r.json()),
-      fetch('data/events.json' + (force ? `?t=${Date.now()}` : ''), { cache: force ? 'reload' : 'default' }).then((r) => r.json()),
+    const [f, e, b] = await Promise.all([
+      fetch('data/feed.json' + q, opt).then((r) => r.json()),
+      fetch('data/events.json' + q, opt).then((r) => r.json()),
+      fetch('data/daily.json' + q, opt).then((r) => (r.ok ? r.json() : null)).catch(() => null),
     ]);
     const changed = f.generated !== FEED.generated;
-    FEED = f; EVENTS = e;
+    FEED = f; EVENTS = e; BOWL = b;
     btn.classList.remove('has-new');
     if (force) toast(changed ? 'Fresh bowl served' : 'Already up to date');
   } catch (err) {
@@ -276,42 +283,67 @@ async function checkForNew() {
 const leanTag = (l) => (l && S.prefs.showLean ? `<span class="lean ${l}">${LEAN_INFO[l]}</span>` : '');
 const specTag = (s) => (s.tier === 'X' ? '<span class="spx">Speculative</span>'
   : s.tier === 'O' ? '<span class="spx" style="color:var(--muted);background:var(--surface-2)">Blog</span>' : '');
-function storyCard(s, hero = false) {
+const HEART = '<svg viewBox="0 0 24 24"><path d="M12 20s-7.5-4.6-9.3-9.2C1.5 7.6 3.6 4.5 6.9 4.5c2 0 3.5 1.1 5.1 3 1.6-1.9 3.1-3 5.1-3 3.3 0 5.4 3.1 4.2 6.3C19.5 15.4 12 20 12 20z"/></svg>';
+const SHARE = '<svg viewBox="0 0 24 24"><circle cx="18" cy="5.5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="18.5" r="2.5"/><path d="m8.2 10.8 7.6-4.1M8.2 13.2l7.6 4.1"/></svg>';
+const MORE_V = '<svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="12" cy="19" r="1.4"/></svg>';
+
+// Card in the style of Google News: big picture, headline, short summary with
+// "See more", then the outlets covering it and like / save / share / more.
+function storyCard(s) {
   const t = TOPICS[s.topic] || {};
   const read = S.opened[s.id] ? ' read' : '';
-  const v = S.votes[s.id] || 0;
+  const liked = S.votes[s.id] === 1;
   const saved = S.saved.some((x) => x.id === s.id);
-  const big = S.prefs.cards !== 'compact' || hero;
   const emoji = t.emoji || '📰';
-  const ph = `<div class="thumb ph" style="background:linear-gradient(135deg, ${t.color || '#445'}66, transparent)">${emoji}</div>`;
-  // Big cards put the picture full width on top; compact cards keep a small thumbnail.
-  const top = s.image && big
-    ? `<img class="${hero ? 'hero-img' : 'card-img'}" src="${esc(s.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '';
-  const side = top ? '' : s.image
-    ? `<img class="thumb" src="${esc(s.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.outerHTML='<div class=&quot;thumb ph&quot;>${emoji}</div>'">`
-    : ph;
-  const body = `
-    <div class="src">${avatar(s.source)}<span>${esc(s.source)}</span><span class="tier ${s.tier}" title="${esc(TIER_INFO[s.tier]?.[0] || '')}"></span>${specTag(s)}</div>
-    <h3 class="title">${esc(s.title)}</h3>
-    ${(hero || top) && s.summary ? `<p class="snip">${esc(s.summary)}</p>` : ''}
-    <div class="meta"><span>${ago(s.ts)}</span><span>${emoji} ${esc(t.label || '')}</span>${leanTag(s.lean)}${s.coverage?.length ? `<span class="cov">+${s.coverage.length} more source${s.coverage.length > 1 ? 's' : ''}</span>` : ''}</div>`;
+  const compact = S.prefs.cards === 'compact';
+  const img = s.image
+    ? `<img class="${compact ? 'thumb' : 'card-img'}" src="${esc(s.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : '';
+  const outlets = [s.source, ...(s.coverage || []).map((c) => c.source)].filter((v, i, a) => a.indexOf(v) === i);
+  const stack = outlets.slice(0, 3).map((n) => avatar(n)).join('');
+  const extra = outlets.length > 3 ? `<span class="plus">+${outlets.length - 3}</span>` : '';
+  const who = outlets.length > 1
+    ? `<span class="stack">${stack}</span>${extra}`
+    : `${avatar(s.source)}<span class="who">${esc(s.source)}</span>`;
+  const kick = `<div class="kick"><span>${emoji} ${esc(t.label || '')}</span>${leanTag(s.lean)}${specTag(s)}<span class="ago">${ago(s.ts)}</span></div>`;
+  const snip = s.summary && !compact ? `<p class="snip">${esc(s.summary.replace(/…$/, ''))}… <span class="see">See more</span></p>` : '';
   return `
-  <article class="card${hero ? ' hero' : ''}${read} ${big ? 'big' : 'compact'}" data-id="${s.id}">
+  <article class="card gcard${read}${compact ? ' compact' : ''}" data-id="${s.id}">
     <div class="swipe-hint save">🔖 Save</div><div class="swipe-hint hide">Hide ✕</div>
     ${otherView.has(s.id) ? '<div class="other-view">🔄 Another view</div>' : ''}
-    ${top}
-    <button class="tap" data-open="${s.id}">${top ? body : `<div class="card-row"><div>${body}</div>${side}</div>`}</button>
-    <div class="actions">
-      <div class="left">
-        <button class="act ${v === 1 ? 'on-up' : ''}" data-vote="1" aria-label="More like this">${ICON.up}</button>
-        <button class="act ${v === -1 ? 'on-down' : ''}" data-vote="-1" aria-label="Less like this">${ICON.down}</button>
-      </div>
-      <div class="right">
-        <button class="act ${saved ? 'on-save' : ''}" data-save aria-label="Save">${ICON.save}</button>
-        <button class="act" data-menu aria-label="More options">${ICON.more}</button>
-      </div>
+    <button class="tap" data-open="${s.id}">
+      ${compact ? `<div class="card-row"><div>${kick}<h3 class="title">${esc(s.title)}</h3></div>${img || `<div class="thumb ph">${emoji}</div>`}</div>`
+        : `${img}<div class="gbody">${kick}<h3 class="title">${esc(s.title)}</h3>${snip}</div>`}
+    </button>
+    <div class="gfoot">
+      <button class="outlets" data-open="${s.id}" aria-label="${outlets.length} outlets">${who}</button>
+      <span class="sp"></span>
+      <button class="act ${liked ? 'on-like' : ''}" data-vote="1" aria-label="Like">${HEART}</button>
+      <button class="act ${saved ? 'on-save' : ''}" data-save aria-label="Save">${ICON.save}</button>
+      <button class="act" data-sharecard aria-label="Share">${SHARE}</button>
+      <button class="act" data-menu aria-label="More options">${MORE_V}</button>
     </div>
   </article>`;
+}
+
+// Two columns on a Fold / tablet, three on wide screens; cards drop into the
+// shortest column so the grid stays tidy like Google News.
+function columnCount() {
+  const w = Math.min(window.innerWidth, 1280);
+  return w >= 1100 ? 3 : w >= 600 ? 2 : 1;
+}
+let lastCols = columnCount();
+function masonry(stories, extraFirst = '') {
+  const n = columnCount();
+  lastCols = n;
+  if (n === 1) return `<div class="feed">${extraFirst}${stories.map((s) => storyCard(s)).join('')}</div>`;
+  const cols = Array.from({ length: n }, () => ({ h: 0, html: '' }));
+  const compact = S.prefs.cards === 'compact';
+  for (const s of stories) {
+    const est = (s.image && !compact ? 56 : 0) + 34 + Math.ceil(s.title.length / 34) * 9 + (s.summary && !compact ? 16 : 0);
+    const c = cols.reduce((a, b) => (b.h < a.h ? b : a));
+    c.html += storyCard(s); c.h += est;
+  }
+  return `${extraFirst ? `<div class="feed">${extraFirst}</div>` : ''}<div class="masonry" style="--cols:${n}">${cols.map((c) => `<div class="col">${c.html}</div>`).join('')}</div>`;
 }
 
 // The stories the most outlets are covering right now.
@@ -328,34 +360,48 @@ function hotRail() {
     </button>`).join('')}</div>`;
 }
 
+// Section chips in your chosen order. Keys: built-in topics, "c:<id>" for your own, "blindspot".
+function sectionOrder() {
+  const all = ['foryou', ...DEFAULT_TOPICS, ...(S.custom || []).map((c) => 'c:' + c.id), 'blindspot'];
+  const order = (S.prefs.order || []).filter((k) => all.includes(k));
+  for (const k of all) if (!order.includes(k)) order.push(k);
+  return order.filter((k) => k !== 'foryou');
+}
+function sectionVisible(k) {
+  if (k === 'blindspot') return S.prefs.showBlindspot && !S.prefs.noPolitics;
+  if (k === 'views' && S.prefs.noPolitics) return S.prefs.topics.includes('views') && false;
+  if (k.startsWith('c:')) return true;
+  return S.prefs.topics.includes(k);
+}
+function sectionLabel(k) {
+  if (k === 'blindspot') return '⚖️ Blindspot';
+  if (k.startsWith('c:')) { const c = S.custom.find((x) => 'c:' + x.id === k); return c ? `${esc(c.emoji || '🧩')} ${esc(c.name)}` : ''; }
+  return `${TOPICS[k].emoji} ${TOPICS[k].label}`;
+}
+
 const smallIcon = (svg) => svg.replace('<svg', '<svg style="width:16px;height:16px"');
 function renderFeed() {
-  const chips = Object.entries(TOPICS).filter(([k]) => k === 'foryou' || S.prefs.topics.includes(k));
+  const keys = ['foryou', ...sectionOrder().filter(sectionVisible)];
+  if (!keys.includes(route.topic)) route.topic = 'foryou';
   const list = ranked(route.topic);
   const shown = list.slice(0, feedLimit);
   const sec = route.topic.startsWith('c:') ? S.custom.find((c) => 'c:' + c.id === route.topic) : null;
-  let html = `<div class="chips" role="tablist">${chips.map(([k, t]) =>
-    `<button class="chip ${route.topic === k ? 'on' : ''}" data-topic="${k}">${t.emoji} ${t.label}</button>`).join('')}
-    ${(S.custom || []).map((c) => `<button class="chip ${route.topic === 'c:' + c.id ? 'on' : ''}" data-topic="c:${c.id}">${esc(c.emoji || '🧩')} ${esc(c.name)}</button>`).join('')}
-    <button class="chip ${route.topic === 'blindspot' ? 'on' : ''}" data-topic="blindspot">⚖️ Blindspot</button>
-    <button class="chip add" data-newsection>${smallIcon(ICON.plus)} Section</button></div>`;
+  let html = `<div class="chips" role="tablist">${keys.map((k) =>
+    `<button class="chip ${route.topic === k ? 'on' : ''}" data-topic="${k}">${k === 'foryou' ? '✨ For You' : sectionLabel(k)}</button>`).join('')}
+    <button class="chip add" data-newsection>${smallIcon(ICON.plus)} Section</button>
+    <button class="chip add" data-arrange aria-label="Arrange sections">⇅ Arrange</button></div>`;
   if (route.topic === 'foryou') html += hotRail();
   if (sec) html += `<div class="custom-edit"><span>Stories mentioning: ${sec.keywords.map(esc).join(', ')}</span><button data-editsection="${sec.id}">Edit</button></div>`;
   if (route.topic === 'blindspot') html += '<div class="custom-edit"><span>Stories only one side of politics is covering. See what the other side is missing.</span></div>';
-  html += '<div class="feed">';
   const mascot = '<img class="mascot" src="ramen.png" alt="">';
-  if (!FEED.stories.length) html += `<div class="empty">${mascot}Cooking your news…</div>`;
-  else if (!shown.length) html += `<div class="empty">${mascot}${sec ? 'Nothing matching yet. Try adding more keywords.' : 'Nothing here right now.<br>Check another section or come back soon.'}</div>`;
-  let dividerDone = false;
-  shown.forEach((s, i) => {
-    if (route.topic !== 'foryou' && !dividerDone && prevVisit && s.ts < prevVisit && i > 0) {
-      html += '<div class="divider">Since your last visit ↑</div>'; dividerDone = true;
-    }
-    html += storyCard(s, i === 0 && !!s.image && route.topic !== 'foryou');
-  });
+  if (!FEED.stories.length) html += `<div class="feed"><div class="empty">${mascot}Cooking your news…</div></div>`;
+  else if (!shown.length) html += `<div class="feed"><div class="empty">${mascot}${sec ? 'Nothing matching yet. Try adding more keywords.' : 'Nothing here right now.<br>Check another section or come back soon.'}</div></div>`;
+  else html += masonry(shown);
+  html += '<div class="feed">';
   if (list.length > feedLimit) html += '<button class="more-btn" data-more>Show more</button>';
   else if (shown.length) html += `<div class="divider">You're all caught up</div>`;
-  html += `</div>${FEED.generated ? `<div class="updated">Updated ${ago(Date.parse(FEED.generated))} · ${FEED.stories.length} stories from trusted sources</div>` : ''}`;
+  const polHidden = S.prefs.noPolitics ? FEED.stories.filter((s) => s.pol).length : 0;
+  html += `</div>${FEED.generated ? `<div class="updated">Updated ${ago(Date.parse(FEED.generated))} · ${FEED.stories.length} stories from trusted sources${polHidden ? ` · ${polHidden} political stories hidden` : ''}</div>` : ''}`;
   return html;
 }
 
@@ -375,34 +421,67 @@ async function loadWeather() {
   } catch {}
 }
 
-// Read the briefing aloud with the phone's built-in voice.
+// The Daily Bowl: today's bulletin, minus politics if you've switched that off.
+function bowlItems() {
+  if (!BOWL) return { items: [], fin: null };
+  const ok = (i) => !(S.prefs.noPolitics && i.pol) && !S.prefs.muteSources.includes(i.source);
+  return { items: BOWL.items.filter(ok).slice(0, 7), fin: BOWL.finally && ok(BOWL.finally) ? BOWL.finally : null };
+}
+function bowlDate() {
+  return BOWL ? tzFmt({ weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(BOWL.date + 'T12:00:00+13:00')) : '';
+}
+
+// A short news-ident chime, then the bulletin read aloud like a TV newsreader.
+function chime() {
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    [[659.3, 0], [784, 0.16], [1046.5, 0.32]].forEach(([f, at]) => {
+      const o = ac.createOscillator(); const g = ac.createGain();
+      o.type = 'sine'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, ac.currentTime + at);
+      g.gain.exponentialRampToValueAtTime(0.25, ac.currentTime + at + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + at + 0.5);
+      o.connect(g).connect(ac.destination); o.start(ac.currentTime + at); o.stop(ac.currentTime + at + 0.55);
+    });
+    setTimeout(() => ac.close(), 1400);
+  } catch {}
+}
 let speaking = false;
-function listenBriefing(btn) {
+function listenBriefing() {
   const synth = window.speechSynthesis;
   if (speaking) { synth.cancel(); speaking = false; render(); return; }
-  const picks = briefingPicks();
-  const h = +tzFmt({ hour: 'numeric', hour12: false }).format(new Date());
-  const parts = [`${h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'}. Here's your News Ramen briefing.`];
-  if (weather) parts.push(`In ${CITY.name} it's ${weather.t} degrees, with a high of ${weather.max}.`);
-  picks.forEach((s, i) => parts.push(`${i + 1}. From ${s.source}. ${s.title}. ${s.summary ? s.summary.replace(/…$/, '.') : ''}`));
-  parts.push("That's your briefing.");
+  const { items, fin } = bowlItems();
+  const parts = [`Good ${(+tzFmt({ hour: 'numeric', hour12: false }).format(new Date())) < 12 ? 'morning' : 'day'}. This is the Daily Bowl from News Ramen, for ${bowlDate() || 'today'}.`];
+  if (weather) parts.push(`In ${CITY.name}, it's ${weather.t} degrees, heading for ${weather.max}.`);
+  let lastKicker = '';
+  items.forEach((i, n) => {
+    const lead = n === 0 ? (BOWL.headline ? 'Our top story.' : 'First up.') : i.kicker !== lastKicker ? `In ${i.kicker.toLowerCase()} news.` : 'Also.';
+    lastKicker = i.kicker;
+    parts.push(`${lead} ${i.title}. ${i.line || ''}`);
+  });
+  if (fin) parts.push(`And finally. ${fin.title}. ${fin.line || ''}`);
+  parts.push("That's the Daily Bowl. Enjoy your day.");
   const voices = synth.getVoices();
   const voice = voices.find((v) => /en-NZ/i.test(v.lang)) || voices.find((v) => /en-(AU|GB)/i.test(v.lang)) || voices.find((v) => /^en/i.test(v.lang));
   synth.cancel();
-  parts.forEach((p, i) => {
-    const u = new SpeechSynthesisUtterance(p);
-    if (voice) u.voice = voice;
-    u.rate = 1.03;
-    if (i === parts.length - 1) u.onend = () => { speaking = false; if (route.view === 'briefing') render(); };
-    synth.speak(u);
-  });
+  chime();
+  setTimeout(() => {
+    parts.forEach((p, i) => {
+      const u = new SpeechSynthesisUtterance(p.replace(/[‘’]/g, "'"));
+      if (voice) u.voice = voice;
+      u.rate = 1.02;
+      if (i === parts.length - 1) u.onend = () => { speaking = false; chime(); if (route.view === 'briefing') render(); };
+      synth.speak(u);
+    });
+  }, 900);
   speaking = true;
   render();
 }
 
 function briefingPicks() {
   const cutoff = Date.now() - 26 * HOUR;
-  const list = FEED.stories.filter((s) => s.ts > cutoff && !S.hidden[s.id] && S.votes[s.id] !== -1 && !isMuted(s))
+  const bowlIds = new Set(bowlItems().items.map((i) => i.id));
+  const list = FEED.stories.filter((s) => s.ts > cutoff && !S.hidden[s.id] && S.votes[s.id] !== -1 && !isMuted(s) && !bowlIds.has(s.id))
     .map((s) => ({ s, v: score(s) + 0.6 * Math.log2(1 + (s.coverage?.length || 0)) + (S.opened[s.id] ? 2 : 0) }))
     .sort((a, b) => b.v - a.v).map((x) => x.s);
   const out = []; const perTopic = {};
@@ -410,9 +489,13 @@ function briefingPicks() {
     if ((perTopic[s.topic] || 0) >= 2) continue;
     perTopic[s.topic] = (perTopic[s.topic] || 0) + 1;
     out.push(s);
-    if (out.length === 10) break;
+    if (out.length === 8) break;
   }
   return out;
+}
+
+function nextHoliday() {
+  return allEvents().find((e) => e.category === 'Holiday' && Date.parse(e.start + 'T23:59:00+13:00') > Date.now());
 }
 
 function renderBriefing() {
@@ -422,22 +505,39 @@ function renderBriefing() {
   const greet = h < 5 ? 'Up late' : h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
   const date = tzFmt({ weekday: 'long', day: 'numeric', month: 'long' }).format(now);
   const wx = weather ? WX[weather.code] || WX[Math.floor(weather.code / 10) * 10] || ['🌡️', ''] : null;
-  // Rocket launches only make the briefing if you follow them; sport events always do.
+  // Rocket launches only make the briefing if you follow them; sport events and holidays always do.
   const soon = allEvents().filter((e) => {
     const st = Date.parse(e.start); const en = Date.parse(e.end || e.start) + (e.allDay ? 24 * HOUR : 3 * HOUR);
     const relevant = e.category !== 'Space' || (e.tags || []).some((t) => S.prefs.follow.includes(t));
     return relevant && st < Date.now() + 48 * HOUR && en > Date.now();
   });
+  const hol = nextHoliday();
+  const holDays = hol ? Math.round((Date.parse(hol.start + 'T00:00:00+13:00') - Date.now()) / (24 * HOUR)) : 0;
+  const { items, fin } = bowlItems();
   const picks = briefingPicks();
+  const bowlRow = (i, n) => `
+    <button class="bowl-item" data-open="${i.id}">
+      <span class="bn">${n}</span>
+      <span><span class="bk">${esc(i.kicker)}${i.big ? ' · <b>Big story</b>' : ''}</span><b class="bt">${esc(i.title)}</b>${i.line ? `<span class="bl">${esc(i.line)}</span>` : ''}<span class="bs">${esc(i.source)}${i.outlets > 1 ? ` + ${i.outlets - 1} more` : ''}</span></span>
+    </button>`;
   return `
   <section class="brief-hero">
     <h1>${greet}</h1>
-    <div style="color:var(--muted)">${date} · your ${picks.length} things to know</div>
+    <div style="color:var(--muted)">${date}</div>
     ${weather ? `<div class="wx"><span style="font-size:30px">${wx[0]}</span><b>${weather.t}°</b><span>${wx[1]} in ${CITY.name}<br>High ${weather.max}° · Low ${weather.min}° · ${weather.rain ?? 0}% rain</span></div>` : ''}
-    ${'speechSynthesis' in window && picks.length ? `<button class="btn primary listen" data-listen>${speaking ? '■ Stop' : `${ICON.play} Listen to your briefing`}</button>` : ''}
+    ${hol ? `<div class="hol">🎉 Next public holiday: <b>${esc(hol.title.replace(/^🎉 /, ''))}</b> — ${holDays <= 0 ? 'today!' : holDays === 1 ? 'tomorrow' : `in ${holDays} days`} (${whenText(hol).replace(' · all day', '')})</div>` : ''}
   </section>
+  ${items.length ? `
+  <section class="bowl">
+    <div class="bowl-head">
+      <div><span class="onair">● DAILY BOWL</span><div class="bowl-title">Today's news in one bowl</div><div class="bowl-sub">${esc(bowlDate())} · 6am edition · ${items.length + (fin ? 1 : 0)} stories</div></div>
+      ${'speechSynthesis' in window ? `<button class="play" data-listen aria-label="${speaking ? 'Stop' : 'Play the Daily Bowl'}">${speaking ? '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>' : ICON.play}</button>` : ''}
+    </div>
+    ${items.map((i, n) => bowlRow(i, n + 1)).join('')}
+    ${fin ? `<div class="bowl-fin">And finally…</div>${bowlRow(fin, '★')}` : ''}
+  </section>` : ''}
   ${soon.length ? `<div class="section-title">On in the next 48 hours</div><div class="ev-list">${soon.slice(0, 4).map(eventCard).join('')}</div>` : ''}
-  <div class="section-title">Top stories for you</div>
+  <div class="section-title">More picked for you</div>
   <div class="brief-list">${picks.map((s) => `
     <button class="brief-item" data-open="${s.id}">
       <div>
@@ -499,7 +599,7 @@ function eventCard(e) {
     </div>
   </article>`;
 }
-const EV_FILTERS = [['all', 'All'], ['following', '⭐ Following'], ['Strength', '💪 Strength'], ['League', '🏉 League'], ['Basketball', '🏀 Basketball'],
+const EV_FILTERS = [['all', 'All'], ['following', '⭐ Following'], ['Holiday', '🎉 Holidays'],['Strength', '💪 Strength'], ['League', '🏉 League'], ['Basketball', '🏀 Basketball'],
   ['Breaking', '🕺 Breaking'], ['Space', '🚀 Space'], ['mine', '📌 Mine']];
 function renderUpNext() {
   let list = allEvents();
@@ -660,6 +760,7 @@ function storyMenu(s) {
   sheet(`<h2 style="font-size:18px">${esc(s.title)}</h2>
   <div class="menu-list">
     <button data-m="why">💡 <span>Why am I seeing this?</span></button>
+    <button data-m="less">👎 <span>Less like this<small>Teaches News Ramen to show fewer stories like it</small></span></button>
     <button data-m="hide">🙈 <span>Hide this story<small>Teaches News Ramen this wasn't for you</small></span></button>
     <button data-m="topic">📉 <span>Less ${esc(TOPICS[s.topic]?.label || '')}<small>Lower this section in For You</small></span></button>
     <button data-m="source">🚫 <span>Never show ${esc(s.source)}<small>Blocks this outlet completely</small></span></button>
@@ -673,6 +774,7 @@ function storyMenu(s) {
       closeSheet();
       if (m === 'why') setTimeout(() => openStory(s), 260);
       if (m === 'hide') { hide(s); render(); }
+      if (m === 'less') { vote(s, -1); render(); }
       if (m === 'topic') { S.model.topic[s.topic] = clamp((S.model.topic[s.topic] || 0) - 3, -10, 10); persist(); toast(`Less ${TOPICS[s.topic]?.label}`); render(); }
       if (m === 'source') { S.prefs.muteSources.push(s.source); persist(); toast(`${s.source} blocked`, () => { S.prefs.muteSources = S.prefs.muteSources.filter((x) => x !== s.source); persist(); render(); }, 'Undo'); render(); }
       if (m === 'word') setTimeout(() => promptSheet('Mute a word or phrase', 'e.g. Kardashian', (w) => { S.prefs.muteWords.push(w); persist(); toast(`Muted “${w}”`); render(); }), 260);
@@ -740,7 +842,7 @@ function addEventSheet() {
     <div class="field"><label>Date</label><input class="input" id="ev-date" type="date"></div>
     <div class="field"><label>Time (NZ, optional)</label><input class="input" id="ev-time" type="time"></div>
     <div class="field"><label>Where to watch link (optional)</label><input class="input" id="ev-url" type="url" placeholder="https://"></div>
-    <div class="field"><label>Category</label><select class="input" id="ev-cat">${EV_FILTERS.slice(2, 7).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}<option value="Other">Other</option></select></div>
+    <div class="field"><label>Category</label><select class="input" id="ev-cat">${EV_FILTERS.slice(3, 8).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}<option value="Other">Other</option></select></div>
     <button class="btn primary" style="width:100%;justify-content:center;padding:14px" data-saveev>Add to Up Next</button>`, {
     onClick: (el) => {
       if (!el.closest('[data-saveev]')) return;
@@ -756,6 +858,44 @@ function addEventSheet() {
 }
 
 // ------------------------------------------------------------------ settings
+// Arrange the section chips: move up / down, or switch a section off.
+function arrangeSheet() {
+  const order = sectionOrder();
+  const row = (k, i) => {
+    const on = k === 'blindspot' ? S.prefs.showBlindspot : k.startsWith('c:') ? true : S.prefs.topics.includes(k);
+    const blocked = (k === 'blindspot' || k === 'views') && S.prefs.noPolitics;
+    return `<div class="arr-row${blocked ? ' dim' : ''}" data-k="${esc(k)}">
+      <span class="arr-name">${sectionLabel(k)}${blocked ? '<small>Hidden by the politics filter</small>' : ''}</span>
+      <button class="arr-btn" data-mv="top" ${i === 0 ? 'disabled' : ''} aria-label="Move to top">⤒</button>
+      <button class="arr-btn" data-mv="-1" ${i === 0 ? 'disabled' : ''} aria-label="Move up">▲</button>
+      <button class="arr-btn" data-mv="1" ${i === order.length - 1 ? 'disabled' : ''} aria-label="Move down">▼</button>
+      ${k.startsWith('c:') ? '<span class="arr-gap"></span>' : `<button class="switch ${on ? 'on' : ''}" data-tog aria-label="Show"></button>`}
+    </div>`;
+  };
+  sheet(`<button class="sheet-close" data-close>${ICON.x}</button><h2>Arrange sections</h2>
+    <p style="color:var(--muted);margin-top:-4px">The order here is the order of the chips along the top of For You.</p>
+    <div class="arr-list">${order.map(row).join('')}</div>
+    <div class="row-btns"><button class="btn" data-newsection>${smallIcon(ICON.plus)} New section</button><button class="btn ghost" data-resetorder>Reset order</button></div>`, {
+    keepScroll: true,
+    onClick: (el) => {
+      if (el.closest('[data-newsection]')) { closeSheet(true); sectionSheet(); return; }
+      if (el.closest('[data-resetorder]')) { S.prefs.order = []; persist(); render(); arrangeSheet(); return; }
+      const r = el.closest('[data-k]'); if (!r) return;
+      const k = r.dataset.k; const cur = sectionOrder(); const i = cur.indexOf(k);
+      const mv = el.closest('[data-mv]')?.dataset.mv;
+      if (mv) {
+        cur.splice(i, 1);
+        cur.splice(mv === 'top' ? 0 : clamp(i + +mv, 0, cur.length), 0, k);
+        S.prefs.order = cur;
+      } else if (el.closest('[data-tog]')) {
+        if (k === 'blindspot') S.prefs.showBlindspot = !S.prefs.showBlindspot;
+        else S.prefs.topics = S.prefs.topics.includes(k) ? S.prefs.topics.filter((x) => x !== k) : [...S.prefs.topics, k];
+      } else return;
+      persist(); render(); arrangeSheet();
+    },
+  });
+}
+
 // Make or edit your own section: a name, an emoji and the words that put a story in it.
 const SECTION_EMOJI = ['🧩', '🎣', '🏍️', '🎸', '🐕', '🍜', '🌋', '⚽', '🥊', '🏎️', '🎨', '🧠', '🔥', '🌿', '💰', '✈️'];
 function sectionSheet(id) {
@@ -823,6 +963,11 @@ function settingsSheet() {
     <div class="chips static">${(S.custom || []).map((c) => `<button class="chip accent on" data-editsection="${c.id}">${esc(c.emoji || '🧩')} ${esc(c.name)} ✎</button>`).join('')}
       <button class="chip add" data-newsection>${smallIcon(ICON.plus)} New section</button></div>
 
+    <div class="row-btns" style="margin-top:8px"><button class="btn" data-arrange>⇅ Arrange sections</button></div>
+
+    <h4>Filters</h4>
+    <div class="src-row"><span class="name">Hide politics<br><small>Removes political stories everywhere, plus the Views and Blindspot sections</small></span><button class="switch ${S.prefs.noPolitics ? 'on' : ''}" data-pref="noPolitics" aria-label="Hide politics"></button></div>
+
     <h4>Perspective</h4>
     <div class="src-row"><span class="name">Balance my feed<br><small>Every so often, slot in a story from the other side of politics</small></span><button class="switch ${S.prefs.balance ? 'on' : ''}" data-pref="balance" aria-label="Balance my feed"></button></div>
     <div class="src-row"><span class="name">Show political lean<br><small>Label outlets Left, Centre-left, Centre, Centre-right or Right</small></span><button class="switch ${S.prefs.showLean ? 'on' : ''}" data-pref="showLean" aria-label="Show political lean"></button></div>
@@ -866,6 +1011,7 @@ function settingsSheet() {
       else if (d.cards) S.prefs.cards = d.cards;
       else if (d.pref) S.prefs[d.pref] = !S.prefs[d.pref];
       else if (d.editsection || 'newsection' in d) { closeSheet(true); sectionSheet(d.editsection); return; }
+      else if ('arrange' in d) { closeSheet(true); arrangeSheet(); return; }
       else if ('export' in d) {
         const a = document.createElement('a');
         a.href = URL.createObjectURL(new Blob([JSON.stringify(S)], { type: 'application/json' }));
@@ -1031,6 +1177,12 @@ function handleViewClick(t, inSheet) {
   const s = card && findStory(card.dataset.id);
   const open = t.closest('[data-open]');
   if (open) { if (inSheet) closeSheet(true); openStory(findStory(open.dataset.open)); return; }
+  if (s && t.closest('[data-sharecard]')) {
+    if (navigator.share) navigator.share({ title: s.title, url: s.link }).catch(() => {});
+    else { navigator.clipboard?.writeText(s.link); toast('Link copied'); }
+    return;
+  }
+  if (t.closest('[data-arrange]')) { arrangeSheet(); return; }
   if (s && t.closest('[data-vote]')) { vote(s, +t.closest('[data-vote]').dataset.vote); inSheet ? null : render(); return; }
   if (s && t.closest('[data-save]')) { toggleSave(s); inSheet ? null : render(); return; }
   if (s && t.closest('[data-menu]')) { storyMenu(s); return; }
@@ -1126,24 +1278,54 @@ setInterval(() => { if (route.view === 'upnext' && !sheetState) render(); }, 600
 // Pull down from the top of the feed to refresh; the ramen bowl bobs while it loads.
 (() => {
   const ptr = $('#ptr');
-  let y0 = null, pull = 0;
-  addEventListener('touchstart', (e) => { y0 = window.scrollY <= 0 && !sheetState ? e.touches[0].clientY : null; pull = 0; }, { passive: true });
+  const img = $('img', ptr);
+  const label = document.createElement('span');
+  ptr.append(label);
+  const TRIGGER = 80;
+  let y0 = null, pull = 0, busy = false;
+  const show = (d) => {
+    ptr.style.transform = `translate(-50%, ${d}px)`;
+    ptr.style.opacity = String(clamp(d / 50, 0, 1));
+  };
+  addEventListener('touchstart', (e) => {
+    y0 = !busy && window.scrollY <= 0 && !sheetState ? e.touches[0].clientY : null;
+    pull = 0; ptr.style.transition = 'none';
+  }, { passive: true });
   addEventListener('touchmove', (e) => {
     if (y0 === null) return;
-    pull = Math.max(0, e.touches[0].clientY - y0);
-    ptr.style.transform = `translate(-50%, ${Math.min(pull, 110) - 130}px) rotate(${pull * 2}deg)`;
+    pull = Math.max(0, (e.touches[0].clientY - y0) * 0.55); // resistance, like a native pull
+    if (pull <= 0) return;
+    show(Math.min(pull, 110));
+    img.style.transform = `rotate(${pull * 4}deg) scale(${0.7 + Math.min(pull, TRIGGER) / TRIGGER * 0.3})`;
+    label.textContent = pull >= TRIGGER ? 'Release to refresh' : 'Pull to refresh';
+    ptr.classList.toggle('ready', pull >= TRIGGER);
   }, { passive: true });
   addEventListener('touchend', async () => {
     if (y0 === null) return;
     y0 = null;
-    if (pull > 90) {
-      ptr.classList.add('spin'); ptr.style.transform = 'translate(-50%, 20px)';
+    ptr.style.transition = '';
+    if (pull >= TRIGGER) {
+      busy = true;
+      navigator.vibrate?.(10);
+      show(60); img.style.transform = ''; label.textContent = 'Cooking fresh news…';
+      ptr.classList.add('spin');
       await loadData(true); render();
-      ptr.classList.remove('spin');
+      ptr.classList.remove('spin', 'ready');
+      busy = false;
     }
-    ptr.style.transform = '';
+    ptr.style.transform = ''; ptr.style.opacity = ''; img.style.transform = '';
   });
 })();
+
+// Re-flow the columns when the Fold opens/closes or the phone turns.
+let resizeTimer;
+addEventListener('resize', () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (columnCount() !== lastCols && route.view === 'feed' && S.onboarded) render(); }, 150);
+});
+for (const q of ['(min-width: 600px)', '(min-width: 1100px)']) {
+  matchMedia(q).addEventListener('change', () => { if (route.view === 'feed' && S.onboarded && !sheetState) render(); });
+}
 
 applyLook();
 decayModel();
