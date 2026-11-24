@@ -1,0 +1,46 @@
+# Fetches fresh news every 30 minutes and publishes the site to GitHub Pages.
+name: Update news
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Fetch trusted sources
+        run: node scripts/build-feed.mjs
+      - name: Package site
+        run: |
+          mkdir _site
+          cp -r index.html style.css app.js sw.js manifest.webmanifest favicon.png ramen.png ramen-96.png icon-192.png icon-512.png icon-maskable-512.png fonts data _site/
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

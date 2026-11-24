@@ -1,0 +1,21 @@
+{
+  "name": "News Ramen",
+  "short_name": "News Ramen",
+  "description": "A personal news feed from trusted sources, every side of the story, that learns what you like.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f1b2e",
+  "theme_color": "#0f1b2e",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Briefing", "url": "./#briefing" },
+    { "name": "Up Next", "url": "./#upnext" },
+    { "name": "Saved", "url": "./#saved" }
+  ]
+}

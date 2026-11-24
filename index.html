@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en-NZ">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>News Ramen</title>
+  <meta name="description" content="A personal news feed from trusted sources, every side of the story, that learns what you like.">
+  <meta name="theme-color" content="#0f1b2e" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f3f6fb" media="(prefers-color-scheme: light)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="News Ramen">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="favicon.png" type="image/png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <link rel="preload" href="fonts/okasa.otf" as="font" type="font/otf" crossorigin>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <button class="brand" data-go="feed" aria-label="News Ramen home">
+        <img src="ramen-96.png" alt="" width="34" height="34">
+        <span class="wordmark">NEWS RAMEN</span>
+      </button>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="btn-refresh" aria-label="Refresh"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/></svg></button>
+        <button class="icon-btn" id="btn-search" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+        <button class="icon-btn" id="btn-settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg></button>
+      </div>
+    </header>
+    <div id="ptr" aria-hidden="true"><img src="ramen-96.png" alt=""></div>
+
+    <main id="view" tabindex="-1"></main>
+
+    <nav class="tabbar" aria-label="Sections">
+      <button data-go="feed" class="tab"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8M8 13h8M8 17h5"/></svg><span>For You</span></button>
+      <button data-go="briefing" class="tab"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg><span>Briefing</span></button>
+      <button data-go="upnext" class="tab"><svg viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg><span>Up Next</span></button>
+      <button data-go="saved" class="tab"><svg viewBox="0 0 24 24"><path d="M6 3.5h12v17l-6-4-6 4z"/></svg><span>Saved</span></button>
+    </nav>
+  </div>
+
+  <div id="sheet-root"></div>
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>

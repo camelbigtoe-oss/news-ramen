@@ -1,0 +1,74 @@
+{
+  "_note": "Hand-kept events for the Up Next tab. Times are NZ time unless marked. 'tbc' = date or time not confirmed. Live sources (space launches, NRL fixtures) are added automatically by scripts/build-feed.mjs.",
+  "events": [
+    {
+      "id": "ifa-worlds-2026", "title": "💪 IFA World Armwrestling Championships", "start": "2026-11-26", "end": "2026-11-30", "allDay": true,
+      "category": "Strength", "tags": ["Armwrestling"], "location": "Baku, Azerbaijan",
+      "note": "26–30 Nov. Baku is 9 hours behind NZ, so a 10am–6pm session there is about 7pm–3am NZ. Daily session times not published yet.",
+      "tbc": "Session times",
+      "watch": [{ "label": "Find stream", "url": "https://www.youtube.com/results?search_query=IFA+World+Armwrestling+Championships+2026+live" }]
+    },
+    {
+      "id": "tall-blacks-jordan-2026", "title": "🏀 Tall Blacks v Jordan – World Cup qualifier", "start": "2026-11-27", "allDay": true,
+      "category": "Basketball", "tags": ["Tall Blacks", "Basketball"], "location": "Karisma Arena, Seremban, Malaysia",
+      "note": "FIBA World Cup 2027 Asian Qualifiers, window 5. NZ sit 2nd in Group E at 6-2; top 3 qualify. Malaysia is 5 hours behind NZ, so a 7pm tip there is midnight NZ.",
+      "tbc": "Tip-off time",
+      "watch": [{ "label": "Courtside 1891", "url": "https://www.courtside1891.basketball" }]
+    },
+    {
+      "id": "bc-one-2026", "title": "🕺 Red Bull BC One World Final", "start": "2026-11-30T10:00:00+13:00", "end": "2026-11-30T14:00:00+13:00",
+      "category": "Breaking", "tags": ["Breaking"], "location": "Mattamy Athletic Centre, Toronto",
+      "note": "1v1 breaking world final. Sun 29 Nov 4pm Toronto = Mon 30 Nov 10am NZ.",
+      "watch": [{ "label": "Red Bull TV", "url": "https://www.redbull.com/int-en/tv" }]
+    },
+    {
+      "id": "rb-half-court-2026", "title": "🏀 Red Bull Half Court World Final", "start": "2026-12-05", "allDay": true,
+      "category": "Basketball", "tags": ["Basketball"], "location": "Manila, Philippines",
+      "note": "3on3 streetball world final, first time in Manila. Manila is 5 hours behind NZ, so an evening final there is late night NZ.",
+      "tbc": "Start time",
+      "watch": [{ "label": "Red Bull TV", "url": "https://www.redbull.com/int-en/tv" }]
+    },
+    {
+      "id": "evw28", "title": "💪 East vs West 28 – Arm Wrestling", "start": "2026-12-20", "allDay": true,
+      "category": "Strength", "tags": ["Armwrestling"], "location": "Las Vegas, USA",
+      "note": "Listed for Sat 19 Dec Vegas = Sun 20 Dec NZ. Only on a fan tracker so far; card not announced. An 8pm Vegas start would be 5pm Sunday NZ.",
+      "tbc": "Not yet confirmed",
+      "watch": [{ "label": "EvW PPV", "url": "https://live.evwsports.com" }, { "label": "Free prelims (YouTube)", "url": "https://www.youtube.com/results?search_query=East+vs+West+armwrestling+prelims" }]
+    },
+    {
+      "id": "tall-blacks-window6", "title": "🏀 Tall Blacks – final World Cup qualifier window", "start": "2027-02-22", "end": "2027-03-02", "allDay": true,
+      "category": "Basketball", "tags": ["Tall Blacks", "Basketball"], "location": "TBC",
+      "note": "Last two Group E games v Iran/Syria/Jordan. Check nz.basketball closer to the time.",
+      "tbc": "Fixtures TBC",
+      "watch": [{ "label": "Courtside 1891", "url": "https://www.courtside1891.basketball" }]
+    },
+    {
+      "id": "arnold-strongman-2027", "title": "💪 Arnold Strongman Classic 2027", "start": "2027-03-06", "allDay": true,
+      "category": "Strength", "tags": ["Strongman"], "location": "Columbus, Ohio, USA",
+      "note": "Usually the first weekend of March at the Arnold Sports Festival.",
+      "tbc": "Date TBC (early March)",
+      "watch": [{ "label": "Find stream", "url": "https://www.youtube.com/results?search_query=Arnold+Strongman+Classic+2027+live" }]
+    },
+    {
+      "id": "nrl-2027-r1", "title": "🏉 NRL 2027 season kicks off", "start": "2027-03-05", "allDay": true,
+      "category": "League", "tags": ["NRL", "Warriors"], "location": "TBC",
+      "note": "Round 1 fixtures appear here automatically once the draw is published.",
+      "tbc": "Date TBC (early March)",
+      "watch": [{ "label": "Sky Sport NZ", "url": "https://www.sky.co.nz/sport" }, { "label": "Sky Sport Now", "url": "https://www.skysportnow.co.nz" }]
+    },
+    {
+      "id": "wsm-2027", "title": "💪 World's Strongest Man 2027", "start": "2027-05-15", "allDay": true,
+      "category": "Strength", "tags": ["Strongman"], "location": "TBC",
+      "note": "Usually held in May. Mitchell Hooper won in 2026.",
+      "tbc": "Date TBC (usually May)",
+      "watch": [{ "label": "WSM official", "url": "https://theworldsstrongestman.com" }]
+    },
+    {
+      "id": "origin-2027-g2", "title": "🏉 State of Origin Game 2 – Eden Park", "start": "2027-06-16T21:30:00+12:00", "end": "2027-06-16T23:30:00+12:00",
+      "category": "League", "tags": ["NRL"], "location": "Eden Park, Auckland",
+      "note": "NSW Blues v QLD Maroons — first Origin ever played outside Australia. Reported kick-off 9:30pm NZT.",
+      "tbc": "Kick-off to confirm",
+      "watch": [{ "label": "Sky Sport NZ", "url": "https://www.sky.co.nz/sport" }, { "label": "Sky Sport Now", "url": "https://www.skysportnow.co.nz" }]
+    }
+  ]
+}
