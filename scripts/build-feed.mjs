@@ -569,7 +569,9 @@ async function dailyBowl(stories) {
 
 // ---------------------------------------------------------------- main
 const { raw, status } = await collect();
-const stories = cluster(raw.map(enrich)).sort((a, b) => b.ts - a.ts).slice(0, 800);
+const clustered = cluster(raw.map(enrich)).sort((a, b) => b.ts - a.ts);
+// Satire gets its own slots so slower sites (The Civilian, The Chaser) still show up.
+const stories = [...clustered.filter((s) => s.topic !== 'satire').slice(0, 800), ...clustered.filter((s) => s.topic === 'satire').slice(0, 70)];
 const ev = await buildEvents();
 await mkdir(DATA, { recursive: true });
 await writeFile(path.join(DATA, 'feed.json'), JSON.stringify({ generated: new Date(NOW).toISOString(), stories }));
