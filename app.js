@@ -12,6 +12,7 @@ const TOPICS = {
   strength: { label: 'Strength', emoji: '💪', color: '#b8860b' },
   mystery: { label: 'Mysteries & Weird', emoji: '🛸', color: '#7b5cff' },
   views: { label: 'Views', emoji: '🗣️', color: '#4c6ef5' },
+  satire: { label: 'Satire', emoji: '🤡', color: '#d6336c' },
   tech: { label: 'Tech', emoji: '💡', color: '#0b7285' },
   gaming: { label: 'Gaming', emoji: '🎮', color: '#7048e8' },
   science: { label: 'Science & Space', emoji: '🔭', color: '#1c7ed6' },
@@ -23,7 +24,7 @@ const FOLLOW_SUGGESTIONS = ['Strongman', 'Armwrestling', 'Powerlifting', 'Warrio
   'Cybersecurity', 'Nintendo', 'PlayStation', 'Xbox', 'PC gaming', 'Movies', 'TV & streaming', 'Music', 'Climate', 'Health',
   'Economy', 'Housing', 'Politics', 'UFOs & UAP', 'Unsolved', 'Cryptids', 'Paranormal', 'Lost history', 'Strange science'];
 const DEFAULT_FOLLOW = ['Strongman', 'Armwrestling', 'Warriors', 'Kiwis', 'NRL', 'Tall Blacks', 'Christchurch', 'Rocket Lab', 'UFOs & UAP', 'Unsolved'];
-const DEFAULT_TOPICS = ['nz', 'local', 'world', 'views', 'sport', 'league', 'strength', 'mystery', 'tech', 'gaming', 'science', 'entertainment', 'business'];
+const DEFAULT_TOPICS = ['nz', 'local', 'world', 'views', 'sport', 'league', 'strength', 'mystery', 'tech', 'gaming', 'science', 'entertainment', 'business', 'satire'];
 const LIKED_TOPICS = ['sport', 'league', 'strength', 'mystery', 'tech', 'gaming', 'science', 'entertainment'];
 const TIER_INFO = {
   A: ['Public broadcaster / agency / official', 'Highest reliability: public-service or wire newsroom, or the official body for the sport.'],
@@ -31,6 +32,7 @@ const TIER_INFO = {
   S: ['Specialist / magazine', 'Focused on one subject or viewpoint; good depth, lighter on hard news.'],
   O: ['Blog / commentary', 'Independent blog. Opinion first; useful for another angle, not for facts.'],
   X: ['Speculative', 'Fun reads about the strange and ancient. Claims are often unproven: enjoy with a grain of salt.'],
+  F: ['Satire', 'Made-up comedy news. None of it is real.'],
 };
 // Rough lean of each outlet, from public media-bias ratings. Shown so you can see whose angle you're reading.
 const LEAN_INFO = { L: 'Left', CL: 'Centre-left', C: 'Centre', CR: 'Centre-right', R: 'Right' };
@@ -45,7 +47,7 @@ const blank = () => ({
   onboarded: false,
   prefs: { topics: [...DEFAULT_TOPICS], follow: [...DEFAULT_FOLLOW], muteWords: [], muteSources: [], theme: 'auto', fs: 1,
     cards: 'big', balance: true, showLean: true, noPolitics: true, showBlindspot: true, order: [] },
-  custom: [], history: [], version: 3,
+  custom: [], history: [], version: 4,
   model: { topic: {}, tag: {}, source: {}, word: {}, decayed: Date.now() },
   opened: {}, hidden: {}, votes: {}, saved: [], folders: ['Read later'], myEvents: [], lastVisit: 0, lastSeenGenerated: '',
 });
@@ -65,6 +67,8 @@ function load() {
   }
   // Version 3: politics filter added, switched on because you'd rather skip politics.
   if ((stored.version || 1) < 3) { s.prefs.noPolitics = true; s.version = 3; }
+  // Version 4: the Satire section (never mixed into For You, Briefing or the Daily Bowl).
+  if ((stored.version || 1) < 4) { if (!s.prefs.topics.includes('satire')) s.prefs.topics.push('satire'); s.version = 4; }
   return s;
 }
 let saveTimer;
@@ -153,6 +157,7 @@ function isMuted(story) {
 // Your own sections: a story belongs if any keyword appears in it.
 const kwRe = {};
 function customMatch(sec, s) {
+  if (s.topic === 'satire') return false;   // made-up stories never land in your real sections
   const hay = `${s.title} ${s.summary || ''} ${(s.tags || []).join(' ')}`;
   // Whole-word start match: "fish" finds "fishing" but not "selfish".
   return sec.keywords.some((k) => k && (kwRe[k] ||= new RegExp(`(^|[^\\p{L}\\p{N}])${k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'iu')).test(hay));
@@ -202,6 +207,7 @@ function ranked(topic) {
   if (topic === 'blindspot') return FEED.stories.filter((s) => visible(s) && !isBlocked(s) && isBlindspot(s)).sort((a, b) => b.ts - a.ts);
   let list = FEED.stories.filter((s) => visible(s) && !isMuted(s));
   if (topic !== 'foryou') return list.filter((s) => s.topic === topic).sort((a, b) => b.ts - a.ts);
+  list = list.filter((s) => s.topic !== 'satire');   // satire stays in its own section
   list = list.map((s) => ({ s, v: score(s) })).sort((a, b) => b.v - a.v).map((x) => x.s);
   // Keep it varied: no more than two in a row from the same section.
   const out = [];
@@ -282,7 +288,7 @@ async function checkForNew() {
 
 // ------------------------------------------------------------------ render: feed
 const leanTag = (l) => (l && S.prefs.showLean ? `<span class="lean ${l}">${LEAN_INFO[l]}</span>` : '');
-const specTag = (s) => (s.tier === 'X' ? '<span class="spx">Speculative</span>'
+const specTag = (s) => (s.tier === 'F' ? '<span class="spx satire">SATIRE · not real</span>' : s.tier === 'X' ? '<span class="spx">Speculative</span>'
   : s.tier === 'O' ? '<span class="spx" style="color:var(--muted);background:var(--surface-2)">Blog</span>' : '');
 const HEART = '<svg viewBox="0 0 24 24"><path d="M12 20s-7.5-4.6-9.3-9.2C1.5 7.6 3.6 4.5 6.9 4.5c2 0 3.5 1.1 5.1 3 1.6-1.9 3.1-3 5.1-3 3.3 0 5.4 3.1 4.2 6.3C19.5 15.4 12 20 12 20z"/></svg>';
 const SHARE = '<svg viewBox="0 0 24 24"><circle cx="18" cy="5.5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="18.5" r="2.5"/><path d="m8.2 10.8 7.6-4.1M8.2 13.2l7.6 4.1"/></svg>';
@@ -350,7 +356,7 @@ function masonry(stories, extraFirst = '') {
 // The stories the most outlets are covering right now.
 function hotRail() {
   const cutoff = Date.now() - 14 * HOUR;
-  const hot = FEED.stories.filter((s) => s.ts > cutoff && (s.coverage?.length || 0) >= 2 && !S.hidden[s.id] && !isMuted(s))
+  const hot = FEED.stories.filter((s) => s.ts > cutoff && s.topic !== 'satire' && (s.coverage?.length || 0) >= 2 && !S.hidden[s.id] && !isMuted(s))
     .sort((a, b) => (b.coverage.length - a.coverage.length) || (score(b) - score(a))).slice(0, 8);
   if (hot.length < 2) return '';
   return `<div class="rail-title">🔥 Hot right now</div><div class="rail">${hot.map((s, i) => `
@@ -528,7 +534,7 @@ function listenBriefing() {
 function briefingPicks() {
   const cutoff = Date.now() - 26 * HOUR;
   const bowlIds = new Set(bowlItems().items.map((i) => i.id));
-  const list = FEED.stories.filter((s) => s.ts > cutoff && !S.hidden[s.id] && S.votes[s.id] !== -1 && !isMuted(s) && !bowlIds.has(s.id))
+  const list = FEED.stories.filter((s) => s.ts > cutoff && s.topic !== 'satire' && !S.hidden[s.id] && S.votes[s.id] !== -1 && !isMuted(s) && !bowlIds.has(s.id))
     .map((s) => ({ s, v: score(s) + 0.6 * Math.log2(1 + (s.coverage?.length || 0)) + (S.opened[s.id] ? 2 : 0) }))
     .sort((a, b) => b.v - a.v).map((x) => x.s);
   const out = []; const perTopic = {};
@@ -629,7 +635,7 @@ function whenText(e) {
 function eventCard(e) {
   const st = e.allDay ? new Date(e.start + 'T12:00:00+13:00') : new Date(e.start);
   const [cls, label] = countdown(e);
-  const related = FEED.stories.filter((s) => (e.tags || []).some((t) => (s.tags || []).includes(t))).length;
+  const related = FEED.stories.filter((s) => s.topic !== 'satire' && (e.tags || []).some((t) => (s.tags || []).includes(t))).length;
   return `
   <article class="ev ${cls}">
     <div class="ev-top">
@@ -807,6 +813,7 @@ function openStory(s) {
   const fol = isFollowed(s);
   sheet(`
     ${s.image ? `<img class="lead-img" src="${esc(s.image)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : ''}
+    ${s.tier === 'F' ? `<div class="satire-banner">🤡 <b>Satire.</b> This story is made up for laughs by ${esc(s.source)}. None of it is real news.</div>` : ''}
     <div class="src">${avatar(s.source)}<span>${esc(s.source)}</span><span class="tier ${s.tier}"></span><span style="color:var(--faint);font-weight:500">· ${ago(s.ts)} · ${t.emoji || ''} ${esc(t.label || '')}</span></div>
     <h2>${esc(s.title)}</h2>
     ${s.summary ? `<p class="summary">${esc(s.summary)}</p>` : ''}
@@ -1315,7 +1322,7 @@ function handleViewClick(t, inSheet) {
   if (mf) { pickFolder(mf.dataset.movefolder); return; }
 }
 function relatedSheet(tag) {
-  const list = FEED.stories.filter((s) => (s.tags || []).includes(tag)).sort((a, b) => b.ts - a.ts).slice(0, 30);
+  const list = FEED.stories.filter((s) => s.topic !== 'satire' && (s.tags || []).includes(tag)).sort((a, b) => b.ts - a.ts).slice(0, 30);
   sheet(`<button class="sheet-close" data-close>${ICON.x}</button><h2>${esc(tag)}</h2><div class="feed" style="padding:0">${list.map((s) => storyCard(s)).join('')}</div>`, {
     full: true, onClick: (el) => handleViewClick(el, true),
   });

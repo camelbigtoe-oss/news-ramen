@@ -430,3 +430,8 @@ input, select, textarea { font: inherit; color: var(--text); }
 .hist-item small { display: block; margin-top: 4px; color: var(--faint); font-size: 12.5px; }
 @media (min-width: 600px) { .hist-list { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); } .hist-list .month { grid-column: 1 / -1; } }
 .bl { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* ---------- satire ---------- */
+.spx.satire { background: #ff6b8a; color: #1a0610; letter-spacing: .04em; }
+.tier.F { background: #ff6b8a; }
+.satire-banner { margin: 4px 0 12px; padding: 12px 14px; border-radius: 14px; background: color-mix(in srgb, #ff6b8a 18%, var(--surface)); border: 1px solid #ff6b8a; font-size: 15px; }

@@ -72,6 +72,17 @@ const FEEDS = [
   { id: 'ati', name: "All That's Interesting", url: 'https://allthatsinteresting.com/feed', topic: 'mystery', tier: 'X', days: 7, max: 25 },
   { id: 'skeptic', name: 'Skeptical Inquirer', url: 'https://skepticalinquirer.org/feed/', topic: 'mystery', tier: 'S', days: 45 },
   { id: 'smithsonian', name: 'Smithsonian', url: 'https://www.smithsonianmag.com/rss/latest_articles/', topic: 'science', tier: 'B', days: 7 },
+  // Satire: made-up comedy news. Kept in its own section, never mixed with real stories.
+  { id: 'onion', name: 'The Onion', url: 'https://theonion.com/feed/', topic: 'satire', tier: 'F', days: 7 },
+  { id: 'clickhole', name: 'ClickHole', url: 'https://www.clickhole.com/feed/', topic: 'satire', tier: 'F', days: 10 },
+  { id: 'dailymash', name: 'The Daily Mash', url: 'https://www.thedailymash.co.uk/feed', topic: 'satire', tier: 'F', days: 5 },
+  { id: 'beaverton', name: 'The Beaverton', url: 'https://www.thebeaverton.com/feed/', topic: 'satire', tier: 'F', days: 7 },
+  { id: 'shovel', name: 'The Shovel', url: 'https://www.theshovel.com.au/feed/', topic: 'satire', tier: 'F', days: 7 },
+  { id: 'bee', name: 'The Babylon Bee', url: 'https://babylonbee.com/feed', topic: 'satire', tier: 'F', days: 5 },
+  { id: 'hardtimes', name: 'The Hard Times', url: 'https://thehardtimes.net/feed/', topic: 'satire', tier: 'F', days: 10 },
+  { id: 'duffel', name: 'Duffel Blog', url: 'https://www.duffelblog.com/feed', topic: 'satire', tier: 'F', days: 10 },
+  { id: 'civilian', name: 'The Civilian (NZ)', url: 'https://thecivilian.co.nz/feed/', topic: 'satire', tier: 'F', days: 30 },
+  { id: 'chaser', name: 'The Chaser', url: 'https://chaser.com.au/feed/', topic: 'satire', tier: 'F', days: 14 },
   { id: 'livescience', name: 'Live Science', url: 'https://www.livescience.com/feeds/all', topic: 'science', tier: 'S' },
 ];
 
@@ -311,6 +322,9 @@ const POLITICS_SOFT = /\b(policy|policies|ideolog|conservative|liberal|progressi
 
 function enrich(it) {
   const text = `${it.title} ${it.summary}`;
+  if (it.topic === 'satire') {
+    return { ...it, tags: TAGS.filter(([, re]) => re.test(text)).map(([n]) => n), pol: POLITICS.test(text), tok: tokens(it.title) };
+  }
   const tags = TAGS.filter(([, re]) => re.test(text)).map(([name]) => name);
   // A specific tag can move a story out of a broad section (e.g. NZ -> League).
   let topic = it.topic;
@@ -335,7 +349,7 @@ function cluster(items) {
   const sorted = items.sort((a, b) => b.ts - a.ts);
   const clusters = [];
   const seenLinks = new Set();
-  const tierRank = { A: 3, B: 2, S: 1, O: 0, X: 0 };
+  const tierRank = { A: 3, B: 2, S: 1, O: 0, X: 0, F: 0 };
   for (const it of sorted) {
     const key = it.link.split('?')[0];
     if (seenLinks.has(key)) continue;
@@ -344,6 +358,7 @@ function cluster(items) {
     let best = null, bestScore = 0;
     for (const c of clusters) {
       if (Math.abs(c.ts - it.ts) > 36 * HOUR) continue;
+      if ((c.items[0].topic === 'satire') !== (it.topic === 'satire')) continue;
       let inter = 0;
       for (const w of c.tokSet) if (set.has(w)) inter++;
       const jac = inter / (set.size + c.tokSet.size - inter || 1);
@@ -508,7 +523,7 @@ async function dailyBowl(stories) {
   const fresh = prev?.ver === VER;
   if (fresh && (prev.date === today || hour < 6)) return { bowl: prev, made: false };
 
-  const recent = stories.filter((s) => NOW - s.ts < 26 * HOUR && s.topic !== 'views' && s.title.length > 25);
+  const recent = stories.filter((s) => NOW - s.ts < 26 * HOUR && !['views', 'satire'].includes(s.topic) && s.title.length > 25);
   const weight = (s) => (s.coverage.length * 2) + (s.tier === 'A' ? 1.5 : s.tier === 'B' ? 0.8 : 0) + (s.summary ? 1 : 0)
     + (['nz', 'world', 'local'].includes(s.topic) ? 0.6 : 0) - (NOW - s.ts) / (12 * HOUR);
   const ranked = recent.map((s) => ({ s, w: weight(s) })).sort((a, b) => b.w - a.w).map((x) => x.s);
