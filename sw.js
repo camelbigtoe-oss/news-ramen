@@ -1,5 +1,5 @@
 // News Ramen service worker: app shell offline, news network-first, saved images cached.
-const SHELL = 'ramen-shell-v3';
+const SHELL = 'ramen-shell-v4';
 const DATA = 'ramen-data-v1';
 const IMG = 'ramen-img-v1';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'sky.js', 'ramen-96.png', 'favicon.png', 'fonts/okasa.otf', 'icon-192.png', 'manifest.webmanifest'];

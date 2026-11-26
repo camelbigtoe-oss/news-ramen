@@ -483,14 +483,24 @@ function chime() {
   } catch {}
 }
 let speaking = false;
-let speech = { parts: [], i: 0, token: 0, voice: null };
+let paused = false;
+// parts are single sentences so pause/resume picks up almost exactly where it stopped.
+// marks[n] = index of the first part of bowl story n (for the "now reading" highlight).
+let speech = { parts: [], i: 0, token: 0, voice: null, ids: [] };
+const sentences = (p) => p.split(/(?<=[.!?]["”’']?)\s+(?=["“‘']?[A-Z0-9])/).filter((x) => x.trim());
+function markReading() {
+  const id = speaking || paused ? speech.ids[speech.i] : null;
+  document.querySelectorAll('.bowl-item.reading').forEach((el) => { if (el.dataset.open !== id) el.classList.remove('reading'); });
+  if (id) document.querySelector(`.bowl-item[data-open="${CSS.escape(id)}"]`)?.classList.add('reading');
+}
 const RATES = [0.8, 1, 1.25, 1.5, 1.75, 2, 2.25, 2.5];
 const rateLabel = () => `${S.prefs.rate || 1}×`;
 // Speaks one part at a time so a speed change can take effect on the spot.
 function speakPart() {
   const synth = window.speechSynthesis;
   const tok = speech.token;
-  if (speech.i >= speech.parts.length) { speaking = false; chime(); if (route.view === 'briefing') render(); return; }
+  if (speech.i >= speech.parts.length) { speaking = false; paused = false; speech.i = 0; chime(); if (route.view === 'briefing') render(); return; }
+  markReading();
   const u = new SpeechSynthesisUtterance(speech.parts[speech.i].replace(/[‘’]/g, "'"));
   if (speech.voice) u.voice = speech.voice;
   u.rate = (S.prefs.rate || 1) * 1.02;
@@ -504,24 +514,39 @@ function setRate() {
   if (speaking) { speech.token++; window.speechSynthesis.cancel(); speakPart(); }
   const b = $('[data-rate]'); if (b) b.textContent = rateLabel();
 }
+// Play → pause (keeps your place) → play resumes from the same sentence. Stop resets to the start.
+function pauseBriefing() {
+  speaking = false; paused = true; speech.token++; window.speechSynthesis.cancel(); render();
+}
+function resumeBriefing() {
+  speaking = true; paused = false; speech.token++; window.speechSynthesis.cancel();
+  // Step back to the start of the sentence that was cut off (it's already the current one).
+  speakPart(); render();
+}
+function stopBriefing() {
+  speaking = false; paused = false; speech.token++; speech.i = 0; window.speechSynthesis.cancel(); render();
+}
 function listenBriefing() {
   const synth = window.speechSynthesis;
-  if (speaking) { speaking = false; speech.token++; synth.cancel(); render(); return; }
+  if (speaking) { pauseBriefing(); return; }
+  if (paused && speech.parts.length) { resumeBriefing(); return; }
   const { items, fin } = bowlItems();
   const parts = [`Good ${(+tzFmt({ hour: 'numeric', hour12: false }).format(new Date())) < 12 ? 'morning' : 'day'}. This is the Daily Bowl from News Ramen, for ${bowlDate() || 'today'}.`];
   if (weather) parts.push(`In ${CITY.name}, it's ${weather.t} degrees, heading for ${weather.max}.`);
+  const ids = parts.map(() => null);
+  const add = (text, id) => { for (const t of sentences(text || '')) { parts.push(t); ids.push(id); } };
   let lastKicker = '';
   items.forEach((i, n) => {
     const lead = n === 0 ? (BOWL.headline ? 'Our top story.' : 'First up.') : i.kicker !== lastKicker ? `In ${i.kicker.toLowerCase()} news.` : 'Also.';
     lastKicker = i.kicker;
-    parts.push(`${lead} ${i.title}.`);
-    parts.push(i.body || i.line || '');
-    if (i.outlets > 2) parts.push(`${i.outlets} outlets are covering this one.`);
+    add(`${lead} ${i.title}.`, i.id);
+    add(i.body || i.line, i.id);
+    if (i.outlets > 2) add(`${i.outlets} outlets are covering this one.`, i.id);
   });
-  if (fin) { parts.push(`And finally. ${fin.title}.`); parts.push(fin.body || fin.line || ''); }
-  parts.push("That's the Daily Bowl. Enjoy your day.");
+  if (fin) { add(`And finally. ${fin.title}.`, fin.id); add(fin.body || fin.line, fin.id); }
+  add("That's the Daily Bowl. Enjoy your day.", null);
   const voices = synth.getVoices();
-  speech = { parts: parts.filter((p) => p && p.trim()), i: 0, token: speech.token + 1,
+  speech = { parts, ids, i: 0, token: speech.token + 1,
     voice: voices.find((v) => /en-NZ/i.test(v.lang)) || voices.find((v) => /en-(AU|GB)/i.test(v.lang)) || voices.find((v) => /^en/i.test(v.lang)) };
   synth.cancel();
   chime();
@@ -587,7 +612,7 @@ function renderBriefing() {
   <section class="bowl">
     <div class="bowl-head">
       <div><span class="onair">● DAILY BOWL</span><div class="bowl-title">Today's news in one bowl</div><div class="bowl-sub">${esc(bowlDate())} · 6am edition · ${items.length + (fin ? 1 : 0)} stories</div></div>
-      ${'speechSynthesis' in window ? `<button class="rate" data-rate aria-label="Reading speed">${rateLabel()}</button><button class="play" data-listen aria-label="${speaking ? 'Stop' : 'Play the Daily Bowl'}">${speaking ? '<svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>' : ICON.play}</button>` : ''}
+      ${'speechSynthesis' in window ? `<button class="rate" data-rate aria-label="Reading speed">${rateLabel()}</button>${speaking || paused ? `<button class="stopb" data-stop aria-label="Stop and go back to the start"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>` : ''}<button class="play${paused ? ' paused' : ''}" data-listen aria-label="${speaking ? 'Pause' : paused ? 'Resume' : 'Play the Daily Bowl'}">${speaking ? '<svg viewBox="0 0 24 24"><rect x="6" y="5" width="4.5" height="14" rx="1.2"/><rect x="13.5" y="5" width="4.5" height="14" rx="1.2"/></svg>' : ICON.play}</button>` : ''}
     </div>
     ${items.map((i, n) => bowlRow(i, n + 1)).join('')}
     ${fin ? `<div class="bowl-fin">And finally…</div>${bowlRow(fin, '★')}` : ''}
@@ -752,6 +777,7 @@ function render() {
   v.innerHTML = route.view === 'feed' ? renderFeed() : route.view === 'briefing' ? renderBriefing()
     : route.view === 'upnext' ? renderUpNext() : renderSaved();
   bindSwipes();
+  if (route.view === 'briefing') markReading();
   // History search filters as you type without redrawing the whole page.
   const hq = $('#hist-q');
   if (hq) hq.addEventListener('input', () => { route.histQ = hq.value; $('#hist-list').innerHTML = historyList(); });
@@ -1317,6 +1343,7 @@ function handleViewClick(t, inSheet) {
   const es = t.closest('[data-editsection]');
   if (es) { sectionSheet(es.dataset.editsection); return; }
   if (t.closest('[data-rate]')) { setRate(); return; }
+  if (t.closest('[data-stop]')) { stopBriefing(); return; }
   if (t.closest('[data-listen]')) { listenBriefing(t.closest('[data-listen]')); return; }
   const mf = t.closest('[data-movefolder]');
   if (mf) { pickFolder(mf.dataset.movefolder); return; }
