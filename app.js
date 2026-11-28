@@ -12,6 +12,7 @@ const TOPICS = {
   strength: { label: 'Strength', emoji: '💪', color: '#b8860b' },
   mystery: { label: 'Mysteries & Weird', emoji: '🛸', color: '#7b5cff' },
   views: { label: 'Views', emoji: '🗣️', color: '#4c6ef5' },
+  good: { label: 'Good News', emoji: '🌻', color: '#2fb380' },
   satire: { label: 'Satire', emoji: '🤡', color: '#d6336c' },
   tech: { label: 'Tech', emoji: '💡', color: '#0b7285' },
   gaming: { label: 'Gaming', emoji: '🎮', color: '#7048e8' },
@@ -24,7 +25,7 @@ const FOLLOW_SUGGESTIONS = ['Strongman', 'Armwrestling', 'Powerlifting', 'Warrio
   'Cybersecurity', 'Nintendo', 'PlayStation', 'Xbox', 'PC gaming', 'Movies', 'TV & streaming', 'Music', 'Climate', 'Health',
   'Economy', 'Housing', 'Politics', 'UFOs & UAP', 'Unsolved', 'Cryptids', 'Paranormal', 'Lost history', 'Strange science'];
 const DEFAULT_FOLLOW = ['Strongman', 'Armwrestling', 'Warriors', 'Kiwis', 'NRL', 'Tall Blacks', 'Christchurch', 'Rocket Lab', 'UFOs & UAP', 'Unsolved'];
-const DEFAULT_TOPICS = ['nz', 'local', 'world', 'views', 'sport', 'league', 'strength', 'mystery', 'tech', 'gaming', 'science', 'entertainment', 'business', 'satire'];
+const DEFAULT_TOPICS = ['nz', 'local', 'world', 'views', 'sport', 'league', 'strength', 'mystery', 'tech', 'gaming', 'science', 'entertainment', 'business', 'good', 'satire'];
 const LIKED_TOPICS = ['sport', 'league', 'strength', 'mystery', 'tech', 'gaming', 'science', 'entertainment'];
 const TIER_INFO = {
   A: ['Public broadcaster / agency / official', 'Highest reliability: public-service or wire newsroom, or the official body for the sport.'],
@@ -47,7 +48,7 @@ const blank = () => ({
   onboarded: false,
   prefs: { topics: [...DEFAULT_TOPICS], follow: [...DEFAULT_FOLLOW], muteWords: [], muteSources: [], theme: 'auto', fs: 1,
     cards: 'big', balance: true, showLean: true, noPolitics: true, showBlindspot: true, order: [] },
-  custom: [], history: [], version: 4,
+  custom: [], history: [], version: 5,
   model: { topic: {}, tag: {}, source: {}, word: {}, decayed: Date.now() },
   opened: {}, hidden: {}, votes: {}, saved: [], folders: ['Read later'], myEvents: [], lastVisit: 0, lastSeenGenerated: '',
 });
@@ -69,6 +70,12 @@ function load() {
   if ((stored.version || 1) < 3) { s.prefs.noPolitics = true; s.version = 3; }
   // Version 4: the Satire section (never mixed into For You, Briefing or the Daily Bowl).
   if ((stored.version || 1) < 4) { if (!s.prefs.topics.includes('satire')) s.prefs.topics.push('satire'); s.version = 4; }
+  // Version 5: the Good News section, with a small head start so a few happy stories reach For You.
+  if ((stored.version || 1) < 5) {
+    const t = s.prefs.topics; if (!t.includes('good')) t.splice(t.includes('satire') ? t.indexOf('satire') : t.length, 0, 'good');
+    s.model.topic.good = Math.max(s.model.topic.good || 0, 1);
+    s.version = 5;
+  }
   return s;
 }
 let saveTimer;
@@ -461,7 +468,8 @@ function bowlItems() {
     items.push(i);
     if (items.length === 8) break;
   }
-  return { items, fin: BOWL.finally && bowlFits(BOWL.finally) ? BOWL.finally : null };
+  const good = (BOWL.good || []).find((i) => bowlFits(i) && !items.some((x) => x.id === i.id)) || null;
+  return { items, good, fin: BOWL.finally && bowlFits(BOWL.finally) ? BOWL.finally : null };
 }
 function bowlDate() {
   return BOWL ? tzFmt({ weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(BOWL.date + 'T12:00:00+13:00')) : '';
@@ -530,7 +538,7 @@ function listenBriefing() {
   const synth = window.speechSynthesis;
   if (speaking) { pauseBriefing(); return; }
   if (paused && speech.parts.length) { resumeBriefing(); return; }
-  const { items, fin } = bowlItems();
+  const { items, good, fin } = bowlItems();
   const parts = [`Good ${(+tzFmt({ hour: 'numeric', hour12: false }).format(new Date())) < 12 ? 'morning' : 'day'}. This is the Daily Bowl from News Ramen, for ${bowlDate() || 'today'}.`];
   if (weather) parts.push(`In ${CITY.name}, it's ${weather.t} degrees, heading for ${weather.max}.`);
   const ids = parts.map(() => null);
@@ -543,6 +551,7 @@ function listenBriefing() {
     add(i.body || i.line, i.id);
     if (i.outlets > 2) add(`${i.outlets} outlets are covering this one.`, i.id);
   });
+  if (good) { add(`Now for some good news. ${good.title}.`, good.id); add(good.body || good.line, good.id); }
   if (fin) { add(`And finally. ${fin.title}.`, fin.id); add(fin.body || fin.line, fin.id); }
   add("That's the Daily Bowl. Enjoy your day.", null);
   const voices = synth.getVoices();
@@ -591,7 +600,7 @@ function renderBriefing() {
   });
   const hol = nextHoliday();
   const holDays = hol ? Math.round((Date.parse(hol.start + 'T00:00:00+13:00') - Date.now()) / (24 * HOUR)) : 0;
-  const { items, fin } = bowlItems();
+  const { items, good, fin } = bowlItems();
   const picks = briefingPicks();
   const bowlRow = (i, n) => `
     <button class="bowl-item" data-open="${i.id}">
@@ -611,10 +620,11 @@ function renderBriefing() {
   ${items.length ? `
   <section class="bowl">
     <div class="bowl-head">
-      <div><span class="onair">● DAILY BOWL</span><div class="bowl-title">Today's news in one bowl</div><div class="bowl-sub">${esc(bowlDate())} · 6am edition · ${items.length + (fin ? 1 : 0)} stories</div></div>
+      <div><span class="onair">● DAILY BOWL</span><div class="bowl-title">Today's news in one bowl</div><div class="bowl-sub">${esc(bowlDate())} · 6am edition · ${items.length + (good ? 1 : 0) + (fin ? 1 : 0)} stories</div></div>
       ${'speechSynthesis' in window ? `<button class="rate" data-rate aria-label="Reading speed">${rateLabel()}</button>${speaking || paused ? `<button class="stopb" data-stop aria-label="Stop and go back to the start"><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></button>` : ''}<button class="play${paused ? ' paused' : ''}" data-listen aria-label="${speaking ? 'Pause' : paused ? 'Resume' : 'Play the Daily Bowl'}">${speaking ? '<svg viewBox="0 0 24 24"><rect x="6" y="5" width="4.5" height="14" rx="1.2"/><rect x="13.5" y="5" width="4.5" height="14" rx="1.2"/></svg>' : ICON.play}</button>` : ''}
     </div>
     ${items.map((i, n) => bowlRow(i, n + 1)).join('')}
+    ${good ? `<div class="bowl-fin">🌻 Some good news</div>${bowlRow(good, '☀')}` : ''}
     ${fin ? `<div class="bowl-fin">And finally…</div>${bowlRow(fin, '★')}` : ''}
   </section>` : ''}
   ${soon.length ? `<div class="section-title">On in the next 48 hours</div><div class="ev-list">${soon.slice(0, 4).map(eventCard).join('')}</div>` : ''}

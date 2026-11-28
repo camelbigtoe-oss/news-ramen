@@ -83,6 +83,17 @@ const FEEDS = [
   { id: 'duffel', name: 'Duffel Blog', url: 'https://www.duffelblog.com/feed', topic: 'satire', tier: 'F', days: 10 },
   { id: 'civilian', name: 'The Civilian (NZ)', url: 'https://thecivilian.co.nz/feed/', topic: 'satire', tier: 'F', days: 30 },
   { id: 'chaser', name: 'The Chaser', url: 'https://chaser.com.au/feed/', topic: 'satire', tier: 'F', days: 14 },
+  // Good News: outlets that only publish positive, real stories (solutions, kindness, progress).
+  { id: 'gnn', name: 'Good News Network', url: 'https://www.goodnewsnetwork.org/feed/', topic: 'good', tier: 'S', days: 7 },
+  { id: 'cheerful', name: 'Reasons to be Cheerful', url: 'https://reasonstobecheerful.world/feed/', topic: 'good', tier: 'S', days: 14 },
+  { id: 'optimist', name: 'The Optimist Daily', url: 'https://www.optimistdaily.com/feed/', topic: 'good', tier: 'S', days: 7 },
+  { id: 'fixthenews', name: 'Fix The News', url: 'https://fixthenews.com/feed', topic: 'good', tier: 'S', days: 21 },
+  { id: 'goodgood', name: 'Good Good Good', url: 'https://www.goodgoodgood.co/articles/rss.xml', topic: 'good', tier: 'S', days: 7 },
+  { id: 'sunnyskyz', name: 'Sunny Skyz', url: 'https://www.sunnyskyz.com/rss_tebow.php', topic: 'good', tier: 'S', days: 7 },
+  { id: 'upworthy', name: 'Upworthy', url: 'https://www.upworthy.com/feeds/feed.rss', topic: 'good', tier: 'S', days: 7 },
+  { id: 'betterindia', name: 'The Better India', url: 'https://www.thebetterindia.com/feed/', topic: 'good', tier: 'S', days: 5 },
+  { id: 'goodnewseu', name: 'Good News (Europe)', url: 'https://www.goodnews.eu/en/feed/', topic: 'good', tier: 'S', days: 14 },
+  { id: 'notallbad', name: 'Not All News Is Bad', url: 'https://www.notallnewsisbad.com/feed', topic: 'good', tier: 'S', days: 7, stripSource: true },
   { id: 'livescience', name: 'Live Science', url: 'https://www.livescience.com/feeds/all', topic: 'science', tier: 'S' },
 ];
 
@@ -111,6 +122,8 @@ const STRENGTH_OUTLETS = ['barbend.com', 'theworldsstrongestman.com', 'giantsliv
   'strongmanarchives.com', 'generationiron.com', 'fitnessvolt.com', 'evwsports.com', 'roguefitness.com', 'strongmanchampionsleague.com'];
 
 const SEARCHES = [
+  // Positive News blocks feed readers, so its stories come in through Google News instead.
+  { id: 'gn-positive', topic: 'good', days: 14, q: 'site:positive.news', allow: ['positive.news'] },
   { id: 'gn-strongman', topic: 'strength', days: 10,
     q: '"World\'s Strongest Man" OR "Strongman Champions League" OR "Giants Live" OR "Rogue Invitational" OR "Official Strongman" OR "Arnold Strongman" OR "strongman competition"',
     allow: [...STRENGTH_OUTLETS, ...NZ_OUTLETS, ...GLOBAL_OUTLETS] },
@@ -278,6 +291,8 @@ async function collect() {
       for (const it of items) {
         if (NOW - it.ts > (f.days || 3) * 24 * HOUR || isJunk(it.title) || !it.link) continue;
         if (kept++ >= (f.max || 40)) break;
+        // Aggregators append the original outlet ("Title | The Mojave Beat"); drop it.
+        if (f.stripSource) it.title = it.title.replace(/\s+\|\s+[^|]+$/, '').trim();
         raw.push({ ...it, source: f.name, sourceId: f.id, tier: f.tier, topic: f.topic });
       }
       status.push([f.id, 'ok', kept]);
@@ -480,7 +495,7 @@ async function buildEvents() {
 // Made at 6am NZ time and reused for the rest of the day.
 const SITE = process.env.SITE_URL || 'https://camelbigtoe-oss.github.io/news-ramen/';
 const KICKER = { nz: 'New Zealand', local: 'Christchurch', world: 'World', views: 'Views', sport: 'Sport', league: 'League',
-  strength: 'Strength', mystery: 'Mysteries', tech: 'Tech', gaming: 'Gaming', science: 'Science', entertainment: 'Entertainment', business: 'Business' };
+  strength: 'Strength', mystery: 'Mysteries', tech: 'Tech', gaming: 'Gaming', science: 'Science', entertainment: 'Entertainment', business: 'Business', good: 'Good news' };
 const firstSentence = (s) => {
   const m = (s || '').replace(/…$/, '').match(/^.{40,220}?[.!?](\s|$)/);
   return m ? m[0].trim() : clip(s || '', 200);
@@ -517,7 +532,7 @@ async function dailyBowl(stories) {
   const nz = (o) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Auckland', ...o }).format(new Date(NOW));
   const today = nz({ year: 'numeric', month: '2-digit', day: '2-digit' });
   const hour = +nz({ hour: 'numeric', hour12: false }) % 24;
-  const VER = 2;
+  const VER = 3;
   let prev = null;
   try { prev = JSON.parse(await get(SITE + 'data/daily.json?t=' + NOW)); } catch {}
   const fresh = prev?.ver === VER;
@@ -532,7 +547,7 @@ async function dailyBowl(stories) {
   const picks = []; const per = {};
   const sameStory = (a, b) => a.words.filter((w) => b.words.includes(w)).length >= 3;
   for (const s of ranked) {
-    if (s.topic === 'mystery' || (per[s.topic] || 0) >= (CAP[s.topic] || 2)) continue;
+    if (s.topic === 'mystery' || s.topic === 'good' || (per[s.topic] || 0) >= (CAP[s.topic] || 2)) continue;
     if (picks.some((p) => sameStory(p, s))) continue;
     if (/^apod/i.test(s.summary || '')) continue;
     per[s.topic] = (per[s.topic] || 0) + 1;
@@ -545,7 +560,14 @@ async function dailyBowl(stories) {
     if (['strength', 'league'].includes(s.topic) && !picks.includes(s) && !picks.some((p) => sameStory(p, s))) picks.push(s);
   }
   const finale = ranked.find((s) => s.topic === 'mystery' && s.tier !== 'X') || ranked.find((s) => s.topic === 'mystery');
-  const all = finale ? [...picks, finale] : picks;
+  // One feel-good story near the end, so the bulletin never ends on a downer.
+  // Proper good-news reporting first; Upworthy-style trivia only if nothing else.
+  const NEWSY_GOOD = ['Good News Network', 'Positive News', 'Reasons to be Cheerful', 'Good Good Good', 'The Optimist Daily', 'Fix The News', 'Good News (Europe)'];
+  const goods = recent.filter((s) => s.topic === 'good' && !s.pol && !/^\d+:/.test(s.title))
+    .sort((a, b) => (NEWSY_GOOD.includes(b.source) - NEWSY_GOOD.includes(a.source)) || b.ts - a.ts);
+  const good = [];
+  for (const s of goods) { if (!good.some((g) => g.source === s.source)) good.push(s); if (good.length === 3) break; }
+  const all = [...picks, ...good, ...(finale ? [finale] : [])];
   // Fetch article openings a few at a time.
   const bodies = {};
   for (let i = 0; i < all.length; i += 6) {
@@ -562,7 +584,7 @@ async function dailyBowl(stories) {
     bowl: {
       ver: VER, date: today, made: new Date(NOW).toISOString(),
       headline: picks[0] && picks[0].coverage.length >= 6 ? 'Major story' : '',
-      items: picks.map(item), finally: finale ? item(finale) : null,
+      items: picks.map(item), good: [...good].sort((a, b) => !!bodies[b.id] - !!bodies[a.id]).map(item), finally: finale ? item(finale) : null,
     },
   };
 }
@@ -573,7 +595,11 @@ const clustered = cluster(raw.map(enrich)).sort((a, b) => b.ts - a.ts);
 // Satire gets its own slots so slower sites (The Civilian, The Chaser) still show up.
 const perSite = {};
 const satire = clustered.filter((s) => s.topic === 'satire' && (perSite[s.source] = (perSite[s.source] || 0) + 1) <= 8);
-const stories = [...clustered.filter((s) => s.topic !== 'satire').slice(0, 800), ...satire];
+// Same for Good News, so busy sites (The Better India, GNN) don't crowd out the weekly ones.
+const GOOD_CAP = { 'The Better India': 6 };
+const good = clustered.filter((s) => s.topic === 'good' && !/^[^a-z]{12,}$/.test(s.title)   // ALL-CAPS promos
+  && (perSite[s.source] = (perSite[s.source] || 0) + 1) <= (GOOD_CAP[s.source] || 10));
+const stories = [...clustered.filter((s) => !['satire', 'good'].includes(s.topic)).slice(0, 800), ...good, ...satire];
 const ev = await buildEvents();
 await mkdir(DATA, { recursive: true });
 await writeFile(path.join(DATA, 'feed.json'), JSON.stringify({ generated: new Date(NOW).toISOString(), stories }));
